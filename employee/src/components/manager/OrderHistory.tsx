@@ -146,10 +146,6 @@ export default function OrderHistory() {
                 <option value="shipping">กำลังจัดส่ง</option>
                 <option value="delivered">จัดส่งสำเร็จ</option>
               </select>
-              <button className="px-6 py-3 bg-indigo-500 text-white rounded-xl hover:bg-indigo-600 transition-colors flex items-center gap-2">
-                <Download className="w-5 h-5" />
-                <span>ส่งออก</span>
-              </button>
             </div>
           </div>
         </div>

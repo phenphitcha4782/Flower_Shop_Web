@@ -1,13 +1,14 @@
 import { MapPin } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
 
 interface HomeProps {
-  // pass back branch_id (number) instead of name
-  onNext: (branchId: number) => void;
+  onNext: () => void;
+  onLogin?: () => void;
+  onLogout?: () => void;
+  loggedInPhone?: string | null;
   onCheckOrder?: () => void;
 }
 
-export function Home({ onNext, onCheckOrder }: HomeProps) {
+export function Home({ onNext, onLogin, onLogout, loggedInPhone, onCheckOrder }: HomeProps) {
 
 
 
@@ -22,12 +23,9 @@ export function Home({ onNext, onCheckOrder }: HomeProps) {
           <h1 className="mb-2 text-gray-900">ยินดีต้อนรับสู่ร้านดอกไม้</h1>
           <p className="text-gray-700">กรุณาเมนูที่คุณต้องการ</p>
         </div>
-        
-
-
 
         <button
-        onClick={() => onNext(1)}
+          onClick={onNext}
           className="w-full py-4 rounded-lg text-white transition-all disabled:opacity-50 disabled:cursor-not-allowed"
           style={{
             backgroundColor: "#62C4FF",
@@ -44,6 +42,28 @@ export function Home({ onNext, onCheckOrder }: HomeProps) {
           >
             ตรวจสอบคำสั่งซื้อ
           </button>
+        )}
+
+        {loggedInPhone ? (
+          onLogout && (
+            <button
+              onClick={onLogout}
+              className="w-full py-4 rounded-lg border-2 bg-white text-gray-700 transition-all hover:bg-gray-50 mt-3"
+              style={{ borderColor: '#FCA5A5' }}
+            >
+              ออกจากระบบ
+            </button>
+          )
+        ) : (
+          onLogin && (
+            <button
+              onClick={onLogin}
+              className="w-full py-4 rounded-lg border-2 bg-white text-gray-700 transition-all hover:bg-gray-50 mt-3"
+              style={{ borderColor: '#AEE6FF' }}
+            >
+              เข้าสู่ระบบ
+            </button>
+          )
         )}
       </div>
     </div>

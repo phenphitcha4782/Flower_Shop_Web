@@ -1,32 +1,52 @@
-import { useState } from 'react';
-import { type FlowerType as DbFlowerType } from './api/flower.api';
-import { BouquetStyleSelection } from './components/BouquetStyleSelection';
-import { BranchSelection } from './components/BranchSelection';
+import { useCallback, useState } from 'react';
 import { Cart } from './components/Cart';
+import { type CustomArrangementResult, CustomArrangementFlow } from './components/CustomArrangementFlow';
 import { DeliveryInfo } from './components/DeliveryInfo';
-import { FlowerTypeSelection } from './components/FlowerTypeSelection';
 import { Home } from './components/Home';
+import { Login } from './components/Login';
 import { OrderComplete } from './components/OrderComplete';
 import { OrderTracking } from './components/OrderTracking';
 import { Payment } from './components/Payment';
-import { PriceColorSelection } from './components/PriceColorSelection';
 import { ProductTypeSelection } from './components/ProductTypeSelection';
 import { SnowEffect } from './components/SnowEffect';
 
 export type ProductType = 'bouquet' | 'vase';
-export type BouquetStyle = 'round' | 'long';
-export type FlowerColor = string;
-export type FlowerType = 'rose' | 'lily' | 'tulip' | 'orchid' | 'sunflower' | 'samadihae';
+export type FlowerType = string;
 
+export interface MainFlowerItem {
+  id?: number | null;
+  name: string;
+  count: number;
+  unitPrice: number;
+}
 
+export interface CartCustomization {
+  bouquetKind?: 'normal' | 'money-envelope';
+  vaseMaterial?: 'glass' | 'ceramic' | 'clay';
+  vaseShape?: 'cylinder' | 'bottle' | 'round';
+  mainFlowers?: MainFlowerItem[];
+  mainFlower?: string;
+  fillerFlower?: string;
+  fillerFlowerGrams?: number;
+  mainFlowerStemCount?: number;
+  wrapperPaper?: 'kraft' | 'clear' | 'pastel';
+  ribbonStyle?: 'style-1' | 'style-2';
+  ribbonColor?: 'blue' | 'red';
+  moneyPackage?: 20 | 50 | 100 | 500 | 1000;
+  moneyAmount?: number;
+  moneyFoldStyle?: 'fan' | 'rose' | 'heart' | 'star';
+  hasCard?: boolean;
+  cardTemplate?: 'classic' | 'minimal' | 'romantic';
+  cardMessage?: string;
+}
 
 export interface CartItem {
   id: string;
   productType: ProductType;
   bouquetStyle?: number; // bouquet_style_id (1 = round, 2 = long)
   price: number;
-  color: FlowerColor;
   flowerTypes: FlowerType[];
+  customization?: CartCustomization;
   imageUrl: string;
   productId?: number | null;
   vaseColorId?: number | null;
@@ -45,13 +65,22 @@ export interface OrderData {
   cardMessage?: string;
 }
 
+export interface CheckoutPricing {
+  subtotal: number;
+  promotionCode: string | null;
+  promotionDiscount: number;
+  usePoints: boolean;
+  pointsUsed: number;
+  pointsDiscount: number;
+  totalDiscount: number;
+  finalAmount: number;
+}
+
 type Step = 
-    'home'
-  | 'branch' 
+  | 'home'
+  | 'login'
   | 'productType' 
-  | 'bouquetStyle' 
-  | 'priceColor' 
-  | 'flowerType' 
+  | 'customize' 
   | 'cart' 
   | 'payment' 
   | 'delivery' 
@@ -60,104 +89,87 @@ type Step =
 
 export default function App() {
   const [step, setStep] = useState<Step>('home');
+  const [loginReturnStep, setLoginReturnStep] = useState<Exclude<Step, 'login'>>('home');
+  const [userPhone, setUserPhone] = useState<string | null>(null);
+  const [pendingResult, setPendingResult] = useState<CustomArrangementResult | null>(null);
   const [branchId, setBranchId] = useState<number | null>(null);
   const [productType, setProductType] = useState<ProductType>('bouquet');
-  const [bouquetStyle, setBouquetStyle] = useState<BouquetStyle>('round');
-  const [selectedPrice, setSelectedPrice] = useState(0);
-  const [selectedColor, setSelectedColor] = useState<FlowerColor>('pink');
-  const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
-  const [selectedBouquetStyle, setSelectedBouquetStyle] = useState<number | null>(null);
-  const [selectedVaseColorId, setSelectedVaseColorId] = useState<number | null>(null);
-  const [selectedFlowerTypes, setSelectedFlowerTypes] = useState<FlowerType[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [orderData, setOrderData] = useState<OrderData | null>(null);
   const [savedOrders, setSavedOrders] = useState<OrderData[]>([]);
+  const [checkoutPricing, setCheckoutPricing] = useState<CheckoutPricing>({
+    subtotal: 0,
+    promotionCode: null,
+    promotionDiscount: 0,
+    usePoints: false,
+    pointsUsed: 0,
+    pointsDiscount: 0,
+    totalDiscount: 0,
+    finalAmount: 0,
+  });
+  const cartSubtotal = cart.reduce((sum, item) => sum + item.price, 0);
+  const payableTotal = checkoutPricing.subtotal === cartSubtotal ? checkoutPricing.finalAmount : cartSubtotal;
 
    
   const handleProduct = () => {
     setStep('productType');
   };
 
-  const handleProductTypeSelect = (type: ProductType) => {
-    setProductType(type);
-    if (type === 'bouquet') {
-      setStep('priceColor');
-    } else {
-      setStep('priceColor');
-    }
+  const handleOpenLogin = (returnStep: Exclude<Step, 'login'> = 'home') => {
+    setLoginReturnStep(returnStep);
+    setStep('login');
   };
 
-  const handleBouquetStyleSelect = (style: BouquetStyle) => {
-    setBouquetStyle(style);
-    setStep('priceColor');
-    // Fetch bouquet data with product_type_id = 1
-    fetchBouquetData(1);
-  };
-
-  const fetchBouquetData = async (productTypeId: number) => {
-    try {
-        const response = await fetch(`${API_BASE}/bouquets/${productTypeId}`);
-        const data = await response.json();
-        // Process the bouquet data as needed
-        console.log(data);
-    } catch (error) {
-        console.error('Error fetching bouquet data:', error);
-    }
-  };
-
-  const handlePriceColorSelect = (price: number, color: FlowerColor, productId?: number | null, bouquetStyleId?: number | null) => {
-    setSelectedPrice(price);
-    setSelectedColor(color);
-    setSelectedProductId(productId ?? null);
-    // For vase: bouquetStyleId will be vaseColorId, for bouquet: it's the actual style ID
-    if (productType === 'bouquet') {
-      setSelectedBouquetStyle(bouquetStyleId ?? null);
-    } else {
-      setSelectedVaseColorId(bouquetStyleId ?? null);
-    }
-    setStep('flowerType');
-  };
-
-  const handleFlowerTypeSelect = (dbFlowerTypes: DbFlowerType[]) => {
-    // Map database flower names to FlowerType enum values
-    const flowerNameToType: Record<string, FlowerType> = {
-      'กุหลาบ': 'rose',
-      'ลิลลี่': 'lily',
-      'ทิวลิป': 'tulip',
-      'กล้วยไม้': 'orchid',
-      'ทานตะวัน': 'sunflower',
-      'ดอกซามาดิเฮ้': 'samadihae',
-    };
-    
-    const flowerTypes: FlowerType[] = dbFlowerTypes
-      .map(f => flowerNameToType[f.flower_name])
-      .filter((ft): ft is FlowerType => ft !== undefined);
-    
-    setSelectedFlowerTypes(flowerTypes);
+  const addResultToCart = (result: CustomArrangementResult) => {
     const newItem: CartItem = {
       id: Date.now().toString(),
       productType,
-      bouquetStyle: productType === 'bouquet' ? selectedBouquetStyle ?? undefined : undefined,
-      price: selectedPrice,
-      color: selectedColor,
-      flowerTypes: flowerTypes,
-      productId: selectedProductId ?? undefined,
-      vaseColorId: selectedVaseColorId ?? undefined,
-      flowerTypeIds: dbFlowerTypes.map(f => f.flower_id),
-      imageUrl: getProductImageUrl(),
+      bouquetStyle: productType === 'bouquet' ? result.bouquetStyleId ?? undefined : undefined,
+      price: result.price,
+      flowerTypes: result.flowerNames,
+      productId: result.productId ?? undefined,
+      vaseColorId: result.vaseColorId ?? undefined,
+      flowerTypeIds: result.flowerTypeIds,
+      imageUrl: result.imageUrl,
+      customization: result.customization,
     };
-    setCart([...cart, newItem]);
+    setCart((prev) => [...prev, newItem]);
     setStep('cart');
   };
 
-  const getProductImageUrl = () => {
-    if (productType === 'vase') {
-      return 'https://images.unsplash.com/photo-1646487134240-7262dfc8a830?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxmbG93ZXIlMjB2YXNlJTIwYXJyYW5nZW1lbnR8ZW58MXx8fHwxNzY0NjUwNjQwfDA&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral';
+  const handleLoginSuccess = (phone: string) => {
+    setUserPhone(phone);
+    if (pendingResult) {
+      addResultToCart(pendingResult);
+      setPendingResult(null);
+      return;
     }
-    if (bouquetStyle === 'round') {
-      return 'https://images.unsplash.com/photo-1612796495278-65e44b09325f?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxyb3VuZCUyMGZsb3dlciUyMGJvdXF1ZXR8ZW58MXx8fHwxNzY0NjcyNjkyfDA&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral';
+    setStep(loginReturnStep);
+  };
+
+  const handleLoginBack = () => {
+    setPendingResult(null);
+    setStep(loginReturnStep);
+  };
+
+  const handleLogout = () => {
+    setUserPhone(null);
+    setPendingResult(null);
+    setStep('home');
+  };
+
+  const handleProductTypeSelect = (type: ProductType) => {
+    setProductType(type);
+    setStep('customize');
+  };
+
+  const handleCustomizationComplete = (result: CustomArrangementResult) => {
+    if (!userPhone) {
+      setPendingResult(result);
+      handleOpenLogin('customize');
+      return;
     }
-    return 'https://images.unsplash.com/photo-1762394947969-b798082075fa?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxsb25nJTIwZmxvd2VyJTIwYm91cXVldHxlbnwxfHx8fDE3NjQ2NzI2OTJ8MA&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral';
+    addResultToCart(result);
   };
 
 
@@ -165,11 +177,6 @@ export default function App() {
   const handleAddMoreItems = () => {
     setStep('productType');
   };
-
-  const handleProceedToPayment = () => {
-    setStep('payment');
-  };
-
   const handleToDelivery = () => {
     setStep('delivery');
   }
@@ -207,10 +214,15 @@ export default function App() {
           branch_id: branchId || null,
           pickup: Deliverytype === 'pickup',
           promotion_id: null,
+          promotion_code: checkoutPricing.promotionCode,
+          points_used: checkoutPricing.pointsUsed,
+          promotion_discount: checkoutPricing.promotionDiscount,
+          points_discount: checkoutPricing.pointsDiscount,
+          total_discount: checkoutPricing.totalDiscount,
           customer: { name: Sendername, phone: Senderphone },
           receiver: { name: Sendername, phone: Senderphone, address: Deliverytype === 'pickup' ? 'ที่ร้าน' : Senderaddress },
           customer_note: Cardmessage || null,
-          total_amount: cart.reduce((sum, item) => sum + item.price, 0),
+          total_amount: payableTotal,
           payment: slipOkData.data,
           method: slipOkData.method ,
           items: cart.map((it) => ({
@@ -243,9 +255,9 @@ export default function App() {
           orderId: data.order_code || `ORD${Date.now().toString().slice(-8)}`,
           items: cart,
           totalAmount: payload.total_amount,
-          customerName: Sendername,
-          address: Senderaddress,
-          phone: Senderphone,
+          customerName: Sendername || '',
+          address: Senderaddress || '',
+          phone: Senderphone || '',
           branch: branchId,
           deliveryType: Deliverytype,
           cardMessage: Cardmessage,
@@ -254,6 +266,16 @@ export default function App() {
         setSavedOrders([...savedOrders, order]);
         // optionally clear cart
         setCart([]);
+        setCheckoutPricing({
+          subtotal: 0,
+          promotionCode: null,
+          promotionDiscount: 0,
+          usePoints: false,
+          pointsUsed: 0,
+          pointsDiscount: 0,
+          totalDiscount: 0,
+          finalAmount: 0,
+        });
         setStep('complete');
       } catch (err: any) {
         console.error('Order create failed', err);
@@ -265,11 +287,17 @@ export default function App() {
   const handleBackToHome = () => {
     setBranchId(null);
     setProductType('bouquet');
-    setBouquetStyle('round');
-    setSelectedPrice(0);
-    setSelectedColor('pink');
-    setSelectedFlowerTypes([]);
     setCart([]);
+    setCheckoutPricing({
+      subtotal: 0,
+      promotionCode: null,
+      promotionDiscount: 0,
+      usePoints: false,
+      pointsUsed: 0,
+      pointsDiscount: 0,
+      totalDiscount: 0,
+      finalAmount: 0,
+    });
     setOrderData(null);
     setStep('home');
   };
@@ -278,13 +306,13 @@ export default function App() {
     setCart(cart.filter(item => item.id !== itemId));
   };
 
+  const handlePricingChange = useCallback((pricing: CheckoutPricing) => {
+    setCheckoutPricing(pricing);
+  }, []);
+
   const handleCheckOrder = () => {
     setStep('tracking');
   };
-
-  function handleBranchSelect(branchId: number): void {
-    throw new Error('Function not implemented.');
-  }
 
   return (
     <div className="min-h-screen bg-white">
@@ -292,36 +320,26 @@ export default function App() {
       {step === 'home' && (
         <Home
           onNext={handleProduct}
+          onLogin={() => handleOpenLogin('home')}
+          onLogout={userPhone ? handleLogout : undefined}
+          loggedInPhone={userPhone}
           onCheckOrder={() => setStep('tracking')}
         />
       )}
-      {step === 'branch' && (
-        <BranchSelection 
-          onNext={handleBranchSelect}
-          onCheckOrder={() => setStep('tracking')}
+      {step === 'login' && (
+        <Login
+          onConfirm={handleLoginSuccess}
+          onBack={handleLoginBack}
         />
       )}
       {step === 'productType' && (
         <ProductTypeSelection onSelect={handleProductTypeSelect} />
       )}
-      {step === 'bouquetStyle' && (
-        <BouquetStyleSelection onSelect={handleBouquetStyleSelect} />
-      )}
-      {step === 'priceColor' && (
-        <PriceColorSelection
+      {step === 'customize' && (
+        <CustomArrangementFlow
           productType={productType}
-          bouquetStyle={bouquetStyle}
-          onSelect={handlePriceColorSelect}
-        />
-      )}
-      {step === 'flowerType' && (
-        <FlowerTypeSelection
-          productType={productType}
-          bouquetStyle={bouquetStyle}
-          price={selectedPrice}
-          color={selectedColor}
-          imageUrl={getProductImageUrl()}
-          onFlowerTypeSelect={handleFlowerTypeSelect}
+          onBack={() => setStep('productType')}
+          onComplete={handleCustomizationComplete}
         />
       )}
       {step === 'cart' && (
@@ -330,11 +348,12 @@ export default function App() {
           onAddMore={handleAddMoreItems}
           onCheckout={handleToDelivery}
           onRemove={handleRemoveFromCart}
+          onPricingChange={handlePricingChange}
         />
       )}
       {step === 'payment' && (
         <Payment
-          totalAmount={cart.reduce((sum, item) => sum + item.price, 0)}
+          totalAmount={payableTotal}
           onConfirm={(slipFile) => {
       // slipFile คือ File object ที่ได้จาก Payment
       console.log('Payment slip:', slipFile);

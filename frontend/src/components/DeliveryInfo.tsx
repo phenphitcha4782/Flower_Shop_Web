@@ -3,7 +3,6 @@ import { MapPin, Home, Truck, MessageSquare } from 'lucide-react';
 import { Branch, getBranches, getRegions, type Region } from "../api/branch.api";
 import { CartItem } from '../App';
 import Swal from 'sweetalert2';
-import { json } from 'express/lib/response';
 
 interface DeliveryInfoProps {
   cartItems: CartItem[];
@@ -116,7 +115,7 @@ return;
     }
   };
 
-  const handleCheckStock = async (cart: CartItem[],selectedBranchId: number): Promise<boolean> => {
+  const handleCheckStock = async (cart: CartItem[], selectedBranchId: number | ""): Promise<boolean> => {
   const res = await fetch("http://localhost:3000/check-stocks", {
     method: "POST",
     headers: {
