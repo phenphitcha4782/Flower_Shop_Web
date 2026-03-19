@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Cart } from './components/Cart';
 import { type CustomArrangementResult, CustomArrangementFlow } from './components/CustomArrangementFlow';
 import { DeliveryInfo } from './components/DeliveryInfo';
@@ -9,6 +9,7 @@ import { OrderTracking } from './components/OrderTracking';
 import { Payment } from './components/Payment';
 import { ProductTypeSelection } from './components/ProductTypeSelection';
 import { SnowEffect } from './components/SnowEffect';
+import { DashboardNew as Dashboard } from './components/dashboard/DashboardNew';
 
 export type ProductType = 'bouquet' | 'vase';
 export type FlowerType = string;
@@ -27,9 +28,11 @@ export interface CartCustomization {
   mainFlowers?: MainFlowerItem[];
   mainFlower?: string;
   fillerFlower?: string;
-  fillerFlowerGrams?: number;
   mainFlowerStemCount?: number;
   wrapperPaper?: 'kraft' | 'clear' | 'pastel';
+  wrapperKraftPattern?: 'kraft-plain' | 'kraft-newsprint' | 'kraft-floral';
+  wrapperPastelColor?: 'pastel-pink' | 'pastel-peach' | 'pastel-mint' | 'pastel-lilac';
+  wrapperClearStyle?: 'clear-transparent' | 'clear-rainbow';
   ribbonStyle?: 'style-1' | 'style-2';
   ribbonColor?: 'blue' | 'red';
   moneyPackage?: 20 | 50 | 100 | 500 | 1000;
@@ -76,9 +79,13 @@ export interface CheckoutPricing {
   finalAmount: number;
 }
 
+const ORDER_SHIPPING_FEE = 39;
+const FREE_SHIPPING_CODE = 'FREESHIP';
+
 type Step = 
   | 'home'
   | 'login'
+  | 'dashboard'
   | 'productType' 
   | 'customize' 
   | 'cart' 
@@ -97,6 +104,8 @@ export default function App() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [orderData, setOrderData] = useState<OrderData | null>(null);
   const [savedOrders, setSavedOrders] = useState<OrderData[]>([]);
+  const [currentUserPoints, setCurrentUserPoints] = useState(0);
+  const [isUserPointsLoading, setIsUserPointsLoading] = useState(false);
   const [checkoutPricing, setCheckoutPricing] = useState<CheckoutPricing>({
     subtotal: 0,
     promotionCode: null,
@@ -108,7 +117,6 @@ export default function App() {
     finalAmount: 0,
   });
   const cartSubtotal = cart.reduce((sum, item) => sum + item.price, 0);
-  const payableTotal = checkoutPricing.subtotal === cartSubtotal ? checkoutPricing.finalAmount : cartSubtotal;
 
    
   const handleProduct = () => {
@@ -142,14 +150,20 @@ export default function App() {
     if (pendingResult) {
       addResultToCart(pendingResult);
       setPendingResult(null);
-      return;
+      setStep('cart');
+    } else {
+      setStep('dashboard');
     }
-    setStep(loginReturnStep);
   };
 
   const handleLoginBack = () => {
     setPendingResult(null);
-    setStep(loginReturnStep);
+    if (loginReturnStep === 'customize' && pendingResult) {
+      addResultToCart(pendingResult);
+      setStep('cart');
+    } else {
+      setStep(loginReturnStep);
+    }
   };
 
   const handleLogout = () => {
@@ -184,12 +198,60 @@ export default function App() {
 
   // Determine API base (use VITE env if provided, otherwise use localhost:3000 for dev)
   const API_BASE = (import.meta as any).env?.VITE_API_BASE || (window.location.hostname === 'localhost' ? 'http://localhost:3000' : '');
+
+  useEffect(() => {
+    if (!userPhone) {
+      setCurrentUserPoints(0);
+      setIsUserPointsLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    const fetchCurrentUserPoints = async () => {
+      setIsUserPointsLoading(true);
+      try {
+        const url = `${API_BASE ? `${API_BASE}/api/customers/points` : '/api/customers/points'}?phone=${encodeURIComponent(userPhone)}`;
+        const response = await fetch(url, { signal: controller.signal });
+
+        if (!response.ok) {
+          throw new Error(`Failed to fetch points: ${response.status}`);
+        }
+
+        const data = await response.json();
+        const points = Number(data?.points || 0);
+        setCurrentUserPoints(Number.isFinite(points) ? Math.max(0, Math.floor(points)) : 0);
+      } catch (error) {
+        if ((error as Error).name !== 'AbortError') {
+          console.error('Failed to load user points', error);
+          setCurrentUserPoints(0);
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsUserPointsLoading(false);
+        }
+      }
+    };
+
+    fetchCurrentUserPoints();
+
+    return () => {
+      controller.abort();
+    };
+  }, [API_BASE, userPhone]);
   
   const [Sendername, setSendername] = useState<string | null>(null);
   const [Senderaddress, setSenderaddress] = useState<string | null>(null);
   const [Senderphone, setSenderphone] = useState<string | null>(null);
   const [Deliverytype, setDeliverytype] = useState<'pickup' | 'delivery'>('delivery');
   const [Cardmessage, setCardmessage] = useState<string | undefined>(undefined);
+
+  const normalizedPromotionCode = checkoutPricing.promotionCode?.trim().toUpperCase() || null;
+  const hasFreeShippingCode = normalizedPromotionCode === FREE_SHIPPING_CODE;
+  const shippingFee = Deliverytype === 'delivery' ? ORDER_SHIPPING_FEE : 0;
+  const shippingDiscount = Deliverytype === 'delivery' && hasFreeShippingCode ? ORDER_SHIPPING_FEE : 0;
+  const basePayableTotal =
+    checkoutPricing.subtotal === cartSubtotal ? checkoutPricing.finalAmount : cartSubtotal;
+  const payableTotal = Math.max(basePayableTotal + shippingFee - shippingDiscount, 0);
 
   const handleDeliveryConfirm = (name: string, address: string, phone: string, deliveryType: 'pickup' | 'delivery',selectedBranchId: number, cardMessage?: string) => {
     setSendername(name);
@@ -198,6 +260,12 @@ export default function App() {
     setDeliverytype(deliveryType);
     setCardmessage(cardMessage);
     setBranchId(selectedBranchId);
+    if (deliveryType === 'pickup' && hasFreeShippingCode) {
+      setCheckoutPricing((prev) => ({
+        ...prev,
+        promotionCode: null,
+      }));
+    }
     setStep('payment');
   }
   const AssigeToDatabase = (slipOkData: JSON) => {
@@ -332,6 +400,13 @@ export default function App() {
           onBack={handleLoginBack}
         />
       )}
+      {step === 'dashboard' && (
+        <Dashboard
+          userPhone={userPhone ?? undefined}
+          onLogout={handleLogout}
+          onGoShopping={() => setStep('productType')}
+        />
+      )}
       {step === 'productType' && (
         <ProductTypeSelection onSelect={handleProductTypeSelect} />
       )}
@@ -345,6 +420,9 @@ export default function App() {
       {step === 'cart' && (
         <Cart
           items={cart}
+          currentDeliveryType={Deliverytype}
+          currentUserPoints={currentUserPoints}
+          isUserPointsLoading={isUserPointsLoading}
           onAddMore={handleAddMoreItems}
           onCheckout={handleToDelivery}
           onRemove={handleRemoveFromCart}

@@ -136,6 +136,35 @@ app.get('/api/product-types', async (_req, res) => {
   }
 });
 
+app.get('/api/customers/points', async (req, res) => {
+  try {
+    const normalizedPhone = String(req.query.phone || '').replace(/\D/g, '');
+    if (!normalizedPhone) {
+      return res.status(400).json({ error: 'phone is required' });
+    }
+
+    const [rows] = await pool.query(
+      `
+      SELECT points
+      FROM customer
+      WHERE REPLACE(REPLACE(REPLACE(phone, '-', ''), ' ', ''), '+', '') = ?
+      ORDER BY customer_id DESC
+      LIMIT 1
+      `,
+      [normalizedPhone]
+    );
+
+    const points = rows.length ? Number(rows[0].points || 0) : 0;
+    res.json({
+      phone: normalizedPhone,
+      points: Number.isFinite(points) ? Math.max(0, Math.floor(points)) : 0,
+    });
+  } catch (err) {
+    console.error('❌ Customer Points API Error:', err.message);
+    res.status(500).json({ error: 'Failed to load customer points', detail: err.message });
+  }
+});
+
 // Create order (transactional)
 app.post('/api/orders', async (req, res) => {
   const payload = req.body || {};

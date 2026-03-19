@@ -85,10 +85,10 @@ export function FlowerTypeSelection({
           <p className="text-gray-700">เลือกได้สูงสุด 2 ชนิด ({selectedFlowerTypes.length}/2)</p>
         </div>
 
-        <div className="grid md:grid-cols-2 gap-8">
+        <div className="grid md:grid-cols-2 gap-8 lg:gap-10 items-start">
           {/* Left: Image and Summary */}
           <div className="flex flex-col">
-            <div className="w-full max-w-md mx-auto rounded-2xl overflow-hidden shadow-lg mb-6">
+            <div className="w-full max-w-xl mx-auto rounded-3xl overflow-hidden shadow-xl mb-6 border border-[#AEE6FF]/40 bg-white">
               <ImageWithFallback
                 src={imageUrl}
                 alt="ตัวอย่างสินค้า"
@@ -96,31 +96,31 @@ export function FlowerTypeSelection({
               />
             </div>
 
-            <div className="bg-white rounded-xl p-6 shadow-md">
-              <h3 className="mb-4 text-gray-800">สรุปรายการ</h3>
-              <div className="space-y-2 text-gray-700">
-                <div className="flex justify-between">
+            <div className="bg-white rounded-3xl p-6 sm:p-7 shadow-xl border border-[#AEE6FF]/40 ring-1 ring-[#DFF4FF]">
+              <h3 className="mb-4 text-gray-900 text-xl">สรุปรายการ</h3>
+              <div className="space-y-1 text-gray-700">
+                <div className="flex items-start justify-between gap-4 py-1.5 text-base">
                   <span>ประเภท:</span>
-                  <span>{productType === 'bouquet' ? 'ช่อดอกไม้' : 'แจกันดอกไม้'}</span>
+                  <span className="font-medium text-right">{productType === 'bouquet' ? 'ช่อดอกไม้' : 'แจกันดอกไม้'}</span>
                 </div>
                 {productType === 'bouquet' && bouquetStyle && (
-                  <div className="flex justify-between">
+                  <div className="flex items-start justify-between gap-4 py-1.5 text-base">
                     <span>แบบ:</span>
-                    <span>{bouquetStyle === 'round' ? 'แบบกลม' : 'แบบยาว'}</span>
+                    <span className="font-medium text-right">{bouquetStyle === 'round' ? 'แบบกลม' : 'แบบยาว'}</span>
                   </div>
                 )}
-                <div className="flex justify-between">
+                <div className="flex items-start justify-between gap-4 py-1.5 text-base">
                   <span>ราคา:</span>
-                  <span>฿{price.toLocaleString()}</span>
+                  <span className="font-semibold text-right">฿{price.toLocaleString()}</span>
                 </div>
-                <div className="flex justify-between">
+                <div className="flex items-start justify-between gap-4 py-1.5 text-base">
                   <span>สี:</span>
-                  <span>{getColorLabel(color)}</span>
+                  <span className="font-medium text-right">{getColorLabel(color)}</span>
                 </div>
                 {selectedFlowerTypes.length > 0 && (
-                  <div className="flex justify-between">
+                  <div className="flex items-start justify-between gap-4 py-1.5 text-base">
                     <span>ชนิดดอกไม้:</span>
-                    <span>
+                    <span className="font-medium text-right">
                       {selectedFlowerTypes.map(ft => 
                         ft.flower_name
                       ).join(', ')}

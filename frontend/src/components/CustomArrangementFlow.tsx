@@ -10,6 +10,9 @@ type BouquetKind = 'normal' | 'money-envelope';
 type VaseMaterial = 'glass' | 'ceramic' | 'clay';
 type VaseShape = 'cylinder' | 'bottle' | 'round';
 type WrapperPaper = 'kraft' | 'clear' | 'pastel';
+type KraftPattern = 'kraft-plain' | 'kraft-newsprint' | 'kraft-floral';
+type PastelColor = 'pastel-pink' | 'pastel-peach' | 'pastel-mint' | 'pastel-lilac';
+type ClearWrapStyle = 'clear-transparent' | 'clear-rainbow';
 type RibbonStyle = 'style-1' | 'style-2';
 type RibbonColor = 'blue' | 'red';
 type MoneyBillValue = 20 | 50 | 100 | 500 | 1000;
@@ -60,6 +63,24 @@ const wrapperPaperOptions: Array<{ value: WrapperPaper; label: string }> = [
   { value: 'pastel', label: 'กระดาษสีพาสเทล' },
 ];
 
+const kraftPatternOptions: Array<{ value: KraftPattern; label: string }> = [
+  { value: 'kraft-plain', label: 'ลายเรียบธรรมชาติ' },
+  { value: 'kraft-newsprint', label: 'ลายหนังสือพิมพ์' },
+  { value: 'kraft-floral', label: 'ลายดอกไม้' },
+];
+
+const pastelColorOptions: Array<{ value: PastelColor; label: string }> = [
+  { value: 'pastel-pink', label: 'ชมพูพาสเทล' },
+  { value: 'pastel-peach', label: 'พีชพาสเทล' },
+  { value: 'pastel-mint', label: 'เขียวมิ้นต์พาสเทล' },
+  { value: 'pastel-lilac', label: 'ม่วงไลแลคพาสเทล' },
+];
+
+const clearWrapStyleOptions: Array<{ value: ClearWrapStyle; label: string }> = [
+  { value: 'clear-transparent', label: 'สีใส' },
+  { value: 'clear-rainbow', label: 'สีรุ้ง' },
+];
+
 const ribbonStyleOptions: Array<{ value: RibbonStyle; label: string }> = [
   { value: 'style-1', label: 'แบบที่ 1' },
   { value: 'style-2', label: 'แบบที่ 2' },
@@ -108,7 +129,7 @@ const mainFlowerUnitPrices: Record<string, number> = {
   'sunflower': 15,
 };
 
-const fillerFlowerPricePer100g: Record<string, number> = {
+const fillerFlowerUnitPrices: Record<string, number> = {
   'ดอกยิปโซ': 35,
   'gypsophila': 35,
   'ดอกคัตเตอร์': 40,
@@ -119,7 +140,7 @@ const normalizeLabel = (value: string) => value.trim().toLowerCase();
 
 const getMainFlowerUnitPrice = (label: string) => mainFlowerUnitPrices[normalizeLabel(label)] ?? 12;
 
-const getFillerFlowerPricePer100g = (label: string) => fillerFlowerPricePer100g[normalizeLabel(label)] ?? 45;
+const getFillerFlowerUnitPrice = (label: string) => fillerFlowerUnitPrices[normalizeLabel(label)] ?? 45;
 
 const getMinimumMoneyAmount = (billValue: MoneyBillValue) => Math.max(300, billValue);
 
@@ -145,9 +166,11 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
 
   const [mainFlowers, setMainFlowers] = useState<MainFlowerSelection[]>([]);
   const [fillerFlower, setFillerFlower] = useState<FlowerChoice | null>(null);
-  const [fillerFlowerGrams, setFillerFlowerGrams] = useState<200 | 300 | 400 | null>(null);
 
   const [wrapperPaper, setWrapperPaper] = useState<WrapperPaper | null>(null);
+  const [kraftPattern, setKraftPattern] = useState<KraftPattern | null>(null);
+  const [pastelColor, setPastelColor] = useState<PastelColor | null>(null);
+  const [clearWrapStyle, setClearWrapStyle] = useState<ClearWrapStyle | null>(null);
   const [ribbonStyle, setRibbonStyle] = useState<RibbonStyle | null>(null);
   const [ribbonColor, setRibbonColor] = useState<RibbonColor | null>(null);
 
@@ -194,8 +217,10 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
     setVaseShape(null);
     setMainFlowers([]);
     setFillerFlower(null);
-    setFillerFlowerGrams(null);
     setWrapperPaper(null);
+    setKraftPattern(null);
+    setPastelColor(null);
+    setClearWrapStyle(null);
     setRibbonStyle(null);
     setRibbonColor(null);
     setMoneyPackage(null);
@@ -215,6 +240,9 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
   useEffect(() => {
     if (!isBouquet) {
       setWrapperPaper(null);
+      setKraftPattern(null);
+      setPastelColor(null);
+      setClearWrapStyle(null);
       setRibbonStyle(null);
       setRibbonColor(null);
     }
@@ -228,9 +256,20 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
     if (!needsFlowerFlow) {
       setMainFlowers([]);
       setFillerFlower(null);
-      setFillerFlowerGrams(null);
     }
   }, [isBouquet, isMoneyBouquet, needsFlowerFlow]);
+
+  useEffect(() => {
+    if (wrapperPaper !== 'kraft') {
+      setKraftPattern(null);
+    }
+    if (wrapperPaper !== 'pastel') {
+      setPastelColor(null);
+    }
+    if (wrapperPaper !== 'clear') {
+      setClearWrapStyle(null);
+    }
+  }, [wrapperPaper]);
 
   const mainFlowerOptions = useMemo<FlowerChoice[]>(() => {
     if (flowerTypes.length > 0) {
@@ -267,9 +306,9 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
   );
 
   const fillerFlowerTotal = useMemo(() => {
-    if (!fillerFlower || !fillerFlowerGrams) return 0;
-    return (fillerFlowerGrams / 100) * getFillerFlowerPricePer100g(fillerFlower.label);
-  }, [fillerFlower, fillerFlowerGrams]);
+    if (!fillerFlower) return 0;
+    return getFillerFlowerUnitPrice(fillerFlower.label);
+  }, [fillerFlower]);
 
   const isMoneyAmountValid = useMemo(() => {
     if (!moneyPackage || moneyAmount === null) return false;
@@ -365,10 +404,10 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
       return isMoneyBouquet ? 'เลือกธนบัตร จำนวนเงิน และวิธีพับ' : 'เลือกดอกไม้หลักและดอกแซม';
     }
     if (currentStep === 4) {
-      return isMoneyBouquet ? 'เลือกดอกไม้หลักและดอกแซม (ไม่บังคับ)' : 'ระบุจำนวนดอกและน้ำหนักดอกแซม';
+      return isMoneyBouquet ? 'เลือกดอกไม้หลักและดอกแซม (ไม่บังคับ)' : 'ระบุจำนวนดอกไม้หลัก';
     }
     if (currentStep === 5) {
-      return isMoneyBouquet ? 'ระบุจำนวนดอกและน้ำหนักดอกแซม' : 'เลือกกระดาษห่อ';
+      return isMoneyBouquet ? 'ระบุจำนวนดอกไม้หลัก' : 'เลือกกระดาษห่อ';
     }
     if (currentStep === 6) {
       return isMoneyBouquet ? 'เลือกกระดาษห่อ' : 'เลือกริบบิ้น';
@@ -383,7 +422,7 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
     if (isMoneyBouquet) {
       if (step === 2) return 3;
       if (step === 3) return 4;
-      if (step === 4) return (mainFlowers.length === 0 && !fillerFlower) ? 6 : 5;
+      if (step === 4) return mainFlowers.length === 0 ? 6 : 5;
       if (step === 5) return 6;
       if (step === 6) return 7;
       if (step === 7) return 8;
@@ -405,7 +444,7 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
     if (isMoneyBouquet) {
       if (step === 8) return 7;
       if (step === 7) return 6;
-      if (step === 6) return (mainFlowers.length === 0 && !fillerFlower) ? 4 : 5;
+      if (step === 6) return mainFlowers.length === 0 ? 4 : 5;
       if (step === 5) return 4;
       if (step === 4) return 3;
       if (step === 3) return 2;
@@ -425,14 +464,17 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
 
   const isFlowerConfigValid = () => {
     if (mainFlowers.length === 0) {
-      // For money bouquet flowers are optional; filler without main is still possible
-      if (fillerFlower) return fillerFlowerGrams !== null;
-      return isMoneyBouquet; // valid to skip entirely only for money bouquet
+      return isMoneyBouquet || !!fillerFlower;
     }
-    const validMainFlowers = mainFlowers.every((flower: MainFlowerSelection) => flower.count >= 1);
-    if (!validMainFlowers) return false;
-    if (fillerFlower) return fillerFlowerGrams !== null;
-    return true;
+    return mainFlowers.every((flower: MainFlowerSelection) => flower.count >= 1);
+  };
+
+  const isWrapperConfigValid = () => {
+    if (!wrapperPaper) return false;
+    if (wrapperPaper === 'kraft') return kraftPattern !== null;
+    if (wrapperPaper === 'pastel') return pastelColor !== null;
+    if (wrapperPaper === 'clear') return clearWrapStyle !== null;
+    return false;
   };
 
   const isCardConfigValid = () => {
@@ -450,7 +492,7 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
       if (step === 3) return moneyPackage !== null && moneyFoldStyle !== null && isMoneyAmountValid;
       if (step === 4) return mainFlowers.length <= 2; // flowers are optional for money bouquet
       if (step === 5) return isFlowerConfigValid();
-      if (step === 6) return wrapperPaper !== null;
+      if (step === 6) return isWrapperConfigValid();
       if (step === 7) return ribbonStyle !== null && ribbonColor !== null;
       if (step === 8) return isCardConfigValid();
       return false;
@@ -458,7 +500,7 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
 
     if (step === 3) return mainFlowers.length >= 1 && mainFlowers.length <= 2;
     if (step === 4) return isFlowerConfigValid();
-    if (step === 5) return wrapperPaper !== null;
+    if (step === 5) return isWrapperConfigValid();
     if (step === 6) return ribbonStyle !== null && ribbonColor !== null;
     if (step === 7) return isCardConfigValid();
     return false;
@@ -502,8 +544,10 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
       mainFlowers: mainFlowerItems,
       mainFlower: mainFlowerItems.map((flower) => flower.name).join(', ') || undefined,
       fillerFlower: fillerFlower?.label,
-      fillerFlowerGrams: fillerFlowerGrams ?? undefined,
       wrapperPaper: wrapperPaper ?? undefined,
+      wrapperKraftPattern: kraftPattern ?? undefined,
+      wrapperPastelColor: pastelColor ?? undefined,
+      wrapperClearStyle: clearWrapStyle ?? undefined,
       ribbonStyle: ribbonStyle ?? undefined,
       ribbonColor: ribbonColor ?? undefined,
       moneyPackage: moneyPackage ?? undefined,
@@ -549,110 +593,108 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
       <div className="max-w-6xl mx-auto">
         <div className="text-center mb-8 bg-white/80 backdrop-blur-sm rounded-2xl p-6 shadow-md border border-[#AEE6FF]/30 max-w-3xl mx-auto">
           <div className="inline-flex items-center gap-2 mb-2" style={{ color: '#1F7DA8' }}>
-            <Sparkles className="w-5 h-5" />
             <span className="text-sm">ขั้นตอน {currentStep}/{totalSteps}</span>
           </div>
           <h1 className="mb-2 text-gray-900">{stepLabel}</h1>
           <p className="text-gray-700">ปรับแต่งชิ้นงานให้ตรงใจ แล้วใส่ตะกร้าได้ทันที</p>
         </div>
 
-        <div className="grid md:grid-cols-2 gap-8">
+        <div className="grid md:grid-cols-2 gap-8 lg:gap-10 items-start">
           <div>
-            <div className="w-full max-w-md mx-auto rounded-2xl overflow-hidden shadow-lg mb-4 bg-white">
+            <div className="w-full max-w-xl mx-auto rounded-3xl overflow-hidden shadow-xl mb-5 bg-white border border-[#AEE6FF]/40">
               <ImageWithFallback src={previewImage} alt="ตัวอย่างสินค้า" className="w-full h-auto" />
             </div>
 
-            <div className="bg-white rounded-2xl p-5 shadow-md space-y-2 text-gray-700">
-              <div className="flex justify-between">
+            <div className="bg-white rounded-3xl p-6 sm:p-7 shadow-xl border border-[#AEE6FF]/40 ring-1 ring-[#DFF4FF] space-y-1 text-gray-700">
+              <div className="flex items-start justify-between gap-4 py-1.5 text-base">
                 <span>ประเภท</span>
-                <span>{productType === 'bouquet' ? 'ช่อดอกไม้' : 'แจกันดอกไม้'}</span>
+                <span className="font-medium text-right">{productType === 'bouquet' ? 'ช่อดอกไม้' : 'แจกันดอกไม้'}</span>
               </div>
               {bouquetKind && (
-                <div className="flex justify-between">
+                <div className="flex items-start justify-between gap-4 py-1.5 text-base">
                   <span>ชนิดช่อ</span>
-                  <span>{bouquetKind === 'normal' ? 'ช่อปกติ' : 'ช่อซองเงิน'}</span>
+                  <span className="font-medium text-right">{bouquetKind === 'normal' ? 'ช่อปกติ' : 'ช่อซองเงิน'}</span>
                 </div>
               )}
               {vaseMaterial && (
-                <div className="flex justify-between">
+                <div className="flex items-start justify-between gap-4 py-1.5 text-base">
                   <span>วัสดุแจกัน</span>
-                  <span>{vaseMaterial === 'glass' ? 'แจกันแก้ว' : vaseMaterial === 'ceramic' ? 'แจกันเซรามิค' : 'แจกันดินเผา'}</span>
+                  <span className="font-medium text-right">{vaseMaterial === 'glass' ? 'แจกันแก้ว' : vaseMaterial === 'ceramic' ? 'แจกันเซรามิค' : 'แจกันดินเผา'}</span>
                 </div>
               )}
               {vaseShape && (
-                <div className="flex justify-between">
+                <div className="flex items-start justify-between gap-4 py-1.5 text-base">
                   <span>ทรงแจกัน</span>
-                  <span>{vaseShape === 'cylinder' ? 'ทรงกระบอก' : vaseShape === 'bottle' ? 'ทรงขวด' : 'ทรงกลม'}</span>
+                  <span className="font-medium text-right">{vaseShape === 'cylinder' ? 'ทรงกระบอก' : vaseShape === 'bottle' ? 'ทรงขวด' : 'ทรงกลม'}</span>
                 </div>
               )}
               {mainFlowers.map((flower) => (
-                <div className="flex justify-between" key={`summary-main-${flower.label}`}>
+                <div className="flex items-start justify-between gap-4 py-1.5 text-base" key={`summary-main-${flower.label}`}>
                   <span>ดอกไม้หลัก</span>
-                  <span>{flower.label} {flower.count} ดอก</span>
+                  <span className="font-medium text-right">{flower.label} {flower.count} ดอก</span>
                 </div>
               ))}
               {fillerFlower && (
-                <div className="flex justify-between">
+                <div className="flex items-start justify-between gap-4 py-1.5 text-base">
                   <span>ดอกแซม</span>
-                  <span>{fillerFlower.label}</span>
-                </div>
-              )}
-              {fillerFlowerGrams && (
-                <div className="flex justify-between">
-                  <span>น้ำหนักดอกแซม</span>
-                  <span>{fillerFlowerGrams} กรัม</span>
+                  <span className="font-medium text-right">{fillerFlower.label} (+฿{getFillerFlowerUnitPrice(fillerFlower.label).toLocaleString()})</span>
                 </div>
               )}
               {moneyPackage && (
-                <div className="flex justify-between">
+                <div className="flex items-start justify-between gap-4 py-1.5 text-base">
                   <span>ธนบัตร</span>
-                  <span>{moneyPackage} บาท</span>
+                  <span className="font-medium text-right">{moneyPackage} บาท</span>
                 </div>
               )}
               {moneyAmount !== null && (
-                <div className="flex justify-between">
+                <div className="flex items-start justify-between gap-4 py-1.5 text-base">
                   <span>จำนวนเงิน</span>
-                  <span>
+                  <span className="font-medium text-right">
                     {moneyAmount.toLocaleString()} บาท
                     {isMoneyAmountValid && moneyNoteCount > 0 ? ` (${moneyNoteCount} ใบ)` : ''}
                   </span>
                 </div>
               )}
               {moneyFoldStyle && (
-                <div className="flex justify-between">
+                <div className="flex items-start justify-between gap-4 py-1.5 text-base">
                   <span>วิธีพับ</span>
-                  <span>{moneyFoldStyle === 'fan' ? 'พัด' : moneyFoldStyle === 'rose' ? 'กุหลาบ' : moneyFoldStyle === 'heart' ? 'หัวใจ' : 'ดาว'}</span>
+                  <span className="font-medium text-right">{moneyFoldStyle === 'fan' ? 'พัด' : moneyFoldStyle === 'rose' ? 'กุหลาบ' : moneyFoldStyle === 'heart' ? 'หัวใจ' : 'ดาว'}</span>
                 </div>
               )}
               {wrapperPaper && (
-                <div className="flex justify-between">
+                <div className="flex items-start justify-between gap-4 py-1.5 text-base">
                   <span>กระดาษห่อ</span>
-                  <span>{wrapperPaper === 'kraft' ? 'คราฟท์' : wrapperPaper === 'clear' ? 'ใส' : 'พาสเทล'}</span>
+                  <span className="font-medium text-right">
+                    {wrapperPaper === 'kraft' ? 'คราฟท์' : wrapperPaper === 'clear' ? 'ใส' : 'พาสเทล'}
+                    {wrapperPaper === 'kraft' && kraftPattern && ` - ${kraftPatternOptions.find((item) => item.value === kraftPattern)?.label}`}
+                    {wrapperPaper === 'pastel' && pastelColor && ` - ${pastelColorOptions.find((item) => item.value === pastelColor)?.label}`}
+                    {wrapperPaper === 'clear' && clearWrapStyle && ` - ${clearWrapStyleOptions.find((item) => item.value === clearWrapStyle)?.label}`}
+                  </span>
                 </div>
               )}
               {ribbonStyle && ribbonColor && (
-                <div className="flex justify-between">
+                <div className="flex items-start justify-between gap-4 py-1.5 text-base">
                   <span>ริบบิ้น</span>
-                  <span>{ribbonStyle === 'style-1' ? 'แบบที่ 1' : 'แบบที่ 2'} {ribbonColor === 'blue' ? 'สีฟ้า' : 'สีแดง'}</span>
+                  <span className="font-medium text-right">{ribbonStyle === 'style-1' ? 'แบบที่ 1' : 'แบบที่ 2'} {ribbonColor === 'blue' ? 'สีฟ้า' : 'สีแดง'}</span>
                 </div>
               )}
               {hasCard !== null && (
-                <div className="flex justify-between">
+                <div className="flex items-start justify-between gap-4 py-1.5 text-base">
                   <span>การ์ด</span>
-                  <span>{hasCard ? 'เพิ่มการ์ด' : 'ไม่เพิ่มการ์ด'}</span>
+                  <span className="font-medium text-right">{hasCard ? 'เพิ่มการ์ด' : 'ไม่เพิ่มการ์ด'}</span>
                 </div>
               )}
               {hasCard && cardTemplate && (
-                <div className="flex justify-between">
+                <div className="flex items-start justify-between gap-4 py-1.5 text-base">
                   <span>แบบการ์ด</span>
-                  <span>{cardTemplate === 'classic' ? 'คลาสสิก' : cardTemplate === 'minimal' ? 'มินิมอล' : 'โรแมนติก'}</span>
+                  <span className="font-medium text-right">{cardTemplate === 'classic' ? 'คลาสสิก' : cardTemplate === 'minimal' ? 'มินิมอล' : 'โรแมนติก'}</span>
                 </div>
               )}
-              <div className="pt-3 mt-3 border-t flex justify-between text-gray-900">
-                <span>ราคาโดยประมาณ</span>
-                <strong>฿{estimatedPrice.toLocaleString()}</strong>
+              <div className="pt-4 mt-2 border-t border-[#D7E9F8] flex items-end justify-between gap-4 text-gray-900">
+                <span className="text-xl sm:text-2xl">ราคาโดยประมาณ</span>
+                <strong className="text-3xl sm:text-4xl leading-none">฿{estimatedPrice.toLocaleString()}</strong>
               </div>
-              <div className="text-xs text-gray-500">
+              <div className="text-sm text-gray-500 pt-1">
                 ระบบจะผูกสินค้าใกล้เคียงอัตโนมัติ: {resolvedProduct?.product_name ?? 'ไม่พบรายการสินค้า'}
               </div>
             </div>
@@ -670,7 +712,7 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
                   >
                     <div className="text-left">ช่อปกติ</div>
                     <div className="text-sm mt-1" style={{ color: bouquetKind === 'normal' ? 'rgba(255,255,255,0.9)' : '#6b7280' }}>
-                      เลือกดอกไม้หลัก/แซม น้ำหนัก กระดาษ และริบบิ้น
+                      เลือกดอกไม้หลัก/แซม กระดาษ และริบบิ้น
                     </div>
                   </button>
                   <button
@@ -883,7 +925,6 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
                         type="button"
                         onClick={() => {
                           setFillerFlower(null);
-                          setFillerFlowerGrams(null);
                         }}
                         className="text-sm text-red-500"
                       >
@@ -974,25 +1015,13 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
                 </div>
 
                 <div className="pt-2">
-                  <h3 className="text-gray-800 mb-3">เลือกน้ำหนักดอกแซม</h3>
+                  <h3 className="text-gray-800 mb-3">ดอกแซมที่เลือก</h3>
                   {fillerFlower ? (
-                    <>
-                      <div className="text-sm text-gray-600 mb-3">{fillerFlower.label} คิดราคา {getFillerFlowerPricePer100g(fillerFlower.label)} บาทต่อ 100 กรัม</div>
-                      <div className="grid grid-cols-3 gap-3">
-                        {[200, 300, 400].map((grams) => (
-                          <button
-                            key={grams}
-                            onClick={() => setFillerFlowerGrams(grams as 200 | 300 | 400)}
-                            className="p-4 rounded-xl border-2 transition-all"
-                            style={getChoiceStyle(fillerFlowerGrams === grams)}
-                          >
-                            {grams} กรัม
-                          </button>
-                        ))}
-                      </div>
-                    </>
+                    <div className="rounded-xl border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700">
+                      {fillerFlower.label} คิดราคาเหมารวม ฿{getFillerFlowerUnitPrice(fillerFlower.label).toLocaleString()}
+                    </div>
                   ) : (
-                    <div className="rounded-xl bg-gray-50 text-gray-500 p-3 text-sm">ไม่ได้เลือกดอกแซม ข้ามขั้นนี้ได้</div>
+                    <div className="rounded-xl bg-gray-50 text-gray-500 p-3 text-sm">ไม่ได้เลือกดอกแซม</div>
                   )}
                 </div>
               </div>
@@ -1013,6 +1042,60 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
                     </button>
                   ))}
                 </div>
+
+                {wrapperPaper === 'kraft' && (
+                  <div>
+                    <h3 className="text-gray-800 mb-3">เลือกลายกระดาษคราฟท์</h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {kraftPatternOptions.map((option) => (
+                        <button
+                          key={option.value}
+                          onClick={() => setKraftPattern(option.value)}
+                          className="p-3 rounded-xl border-2 transition-all text-left"
+                          style={getChoiceStyle(kraftPattern === option.value)}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {wrapperPaper === 'pastel' && (
+                  <div>
+                    <h3 className="text-gray-800 mb-3">เลือกสีพาสเทล</h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {pastelColorOptions.map((option) => (
+                        <button
+                          key={option.value}
+                          onClick={() => setPastelColor(option.value)}
+                          className="p-3 rounded-xl border-2 transition-all text-left"
+                          style={getChoiceStyle(pastelColor === option.value)}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {wrapperPaper === 'clear' && (
+                  <div>
+                    <h3 className="text-gray-800 mb-3">เลือกโทนกระดาษใส</h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {clearWrapStyleOptions.map((option) => (
+                        <button
+                          key={option.value}
+                          onClick={() => setClearWrapStyle(option.value)}
+                          className="p-3 rounded-xl border-2 transition-all text-left"
+                          style={getChoiceStyle(clearWrapStyle === option.value)}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
