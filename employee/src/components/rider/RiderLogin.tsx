@@ -1,6 +1,7 @@
 import { Lock, Truck } from 'lucide-react';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import Swal from 'sweetalert2';
 
 interface RiderLoginProps {
   onLogin: () => void;
@@ -10,10 +11,8 @@ export default function RiderLogin({ onLogin }: RiderLoginProps) {
   const navigate = useNavigate();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
     try {
       const res = await fetch('http://localhost:3000/api/employee/login', {
         method: 'POST',
@@ -22,13 +21,25 @@ export default function RiderLogin({ onLogin }: RiderLoginProps) {
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.message || 'เข้าสู่ระบบไม่สำเร็จ');
+        await Swal.fire({
+          icon: 'error',
+          title: 'เข้าสู่ระบบไม่สำเร็จ',
+          text: data.message || 'กรุณาตรวจสอบชื่อผู้ใช้หรือรหัสผ่าน',
+          confirmButtonText: 'ตกลง',
+          confirmButtonColor: '#0EA5E9',
+        });
         return;
       }
       onLogin();
       navigate('/rider/dashboard');
     } catch (err) {
-      setError('ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้');
+      await Swal.fire({
+        icon: 'error',
+        title: 'เชื่อมต่อไม่สำเร็จ',
+        text: 'ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้',
+        confirmButtonText: 'ตกลง',
+        confirmButtonColor: '#0EA5E9',
+      });
     }
   };
 
@@ -45,7 +56,6 @@ export default function RiderLogin({ onLogin }: RiderLoginProps) {
           </div>
 
           <form onSubmit={handleLogin} className="space-y-6">
-            {error && <div className="text-red-600">{error}</div>}
             <div>
               <label className="block mb-2 text-gray-800">Username</label>
               <input

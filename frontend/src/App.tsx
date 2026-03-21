@@ -408,7 +408,10 @@ export default function App() {
         />
       )}
       {step === 'productType' && (
-        <ProductTypeSelection onSelect={handleProductTypeSelect} />
+        <ProductTypeSelection
+          onSelect={handleProductTypeSelect}
+          onBack={() => setStep('home')}
+        />
       )}
       {step === 'customize' && (
         <CustomArrangementFlow

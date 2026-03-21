@@ -1,6 +1,7 @@
 import { Lock, UserCircle } from 'lucide-react';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import Swal from 'sweetalert2';
 
 interface CashierLoginProps {
   onLogin: () => void;
@@ -10,10 +11,8 @@ export default function CashierLogin({ onLogin }: CashierLoginProps) {
   const navigate = useNavigate();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
     try {
       const res = await fetch('http://localhost:3000/api/employee/login', {
         method: 'POST',
@@ -22,7 +21,13 @@ export default function CashierLogin({ onLogin }: CashierLoginProps) {
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.message || 'เข้าสู่ระบบไม่สำเร็จ');
+        await Swal.fire({
+          icon: 'error',
+          title: 'เข้าสู่ระบบไม่สำเร็จ',
+          text: data.message || 'กรุณาตรวจสอบชื่อผู้ใช้หรือรหัสผ่าน',
+          confirmButtonText: 'ตกลง',
+          confirmButtonColor: '#06B6D4',
+        });
         return;
       }
       // Store employee data in localStorage
@@ -30,7 +35,13 @@ export default function CashierLogin({ onLogin }: CashierLoginProps) {
       onLogin();
       navigate('/cashier/dashboard');
     } catch (err) {
-      setError('ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้');
+      await Swal.fire({
+        icon: 'error',
+        title: 'เชื่อมต่อไม่สำเร็จ',
+        text: 'ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้',
+        confirmButtonText: 'ตกลง',
+        confirmButtonColor: '#06B6D4',
+      });
     }
   };
 
@@ -47,7 +58,6 @@ export default function CashierLogin({ onLogin }: CashierLoginProps) {
           </div>
 
           <form onSubmit={handleLogin} className="space-y-6">
-            {error && <div className="text-red-600">{error}</div>}
             <div>
               <label className="block mb-2 text-gray-800">Username</label>
               <input

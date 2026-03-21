@@ -1,32 +1,34 @@
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { useState } from 'react';
+import { Route, BrowserRouter as Router, Routes } from 'react-router-dom';
 import { Toaster } from 'sonner@2.0.3';
 
 // Cashier Pages
-import CashierLogin from './components/cashier/CashierLogin';
 import CashierDashboard from './components/cashier/CashierDashboard';
+import CashierLogin from './components/cashier/CashierLogin';
 import CashierOrderDetail from './components/cashier/CashierOrderDetail';
 
 // Florist Pages
-import FloristLogin from './components/florist/FloristLogin';
 import FloristDashboard from './components/florist/FloristDashboard';
+import FloristLogin from './components/florist/FloristLogin';
 import FloristOrderDetail from './components/florist/FloristOrderDetail';
 
 // Rider Pages
-import RiderLogin from './components/rider/RiderLogin';
 import RiderDashboard from './components/rider/RiderDashboard';
 import RiderDeliveryDetail from './components/rider/RiderDeliveryDetail';
+import RiderLogin from './components/rider/RiderLogin';
 
 // Manager Pages
-import ManagerLogin from './components/manager/ManagerLogin';
 import ManagerDashboard from './components/manager/ManagerDashboard';
-import ProductManagement from './components/manager/ProductManagement';
+import ManagerLogin from './components/manager/ManagerLogin';
 import OrderHistory from './components/manager/OrderHistory';
+import ProductManagement from './components/manager/ProductManagement';
 import PromotionManagement from './components/manager/PromotionManagement';
 
 // Executive Pages
-import ExecutiveLogin from './components/executive/ExecutiveLogin';
+import ExecutiveCustomers from './components/executive/ExecutiveCustomers';
 import ExecutiveDashboard from './components/executive/ExecutiveDashboard';
+import ExecutiveLogin from './components/executive/ExecutiveLogin';
+import ExecutiveProductList from './components/executive/ExecutiveProductList';
 import ExecutivePromotionManagement from './components/executive/PromotionManagement';
 import UserManagement from './components/executive/UserManagement';
 
@@ -70,6 +72,8 @@ export default function App() {
         <Route path="/executive/dashboard" element={<ExecutiveDashboard />} />
         <Route path="/executive/promotions" element={<ExecutivePromotionManagement />} />
         <Route path="/executive/users" element={<UserManagement />} />
+        <Route path="/executive/products" element={<ExecutiveProductList />} />
+        <Route path="/executive/customers" element={<ExecutiveCustomers />} />
       </Routes>
     </Router>
   );

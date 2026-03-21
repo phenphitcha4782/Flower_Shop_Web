@@ -1,6 +1,7 @@
 import { Building2, Lock } from 'lucide-react';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import Swal from 'sweetalert2';
 
 interface ManagerLoginProps {
   onLogin: () => void;
@@ -10,10 +11,8 @@ export default function ManagerLogin({ onLogin }: ManagerLoginProps) {
   const navigate = useNavigate();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
     try {
       const res = await fetch('http://localhost:3000/api/employee/login', {
         method: 'POST',
@@ -22,7 +21,13 @@ export default function ManagerLogin({ onLogin }: ManagerLoginProps) {
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.message || 'เข้าสู่ระบบไม่สำเร็จ');
+        await Swal.fire({
+          icon: 'error',
+          title: 'เข้าสู่ระบบไม่สำเร็จ',
+          text: data.message || 'กรุณาตรวจสอบชื่อผู้ใช้หรือรหัสผ่าน',
+          confirmButtonText: 'ตกลง',
+          confirmButtonColor: '#6366F1',
+        });
         return;
       }
 
@@ -30,7 +35,13 @@ export default function ManagerLogin({ onLogin }: ManagerLoginProps) {
       // Role IDs: 1=admin, 4=manager, 3=florist, 2=cashier, 5=rider, 6=executive
       const MANAGER_ROLE_ID = 4;
       if (data.employee.role_id !== MANAGER_ROLE_ID) {
-        setError('คุณไม่มีสิทธิ์เข้าใช้ระบบนี้ (เฉพาะผู้จัดการสาขาเท่านั้น)');
+        await Swal.fire({
+          icon: 'error',
+          title: 'ไม่มีสิทธิ์เข้าใช้งาน',
+          text: 'คุณไม่มีสิทธิ์เข้าใช้ระบบนี้ (เฉพาะผู้จัดการสาขาเท่านั้น)',
+          confirmButtonText: 'ตกลง',
+          confirmButtonColor: '#6366F1',
+        });
         console.log('Unauthorized access attempt by user with role_id:', data.employee.role_id);
         return;
       }
@@ -43,7 +54,13 @@ export default function ManagerLogin({ onLogin }: ManagerLoginProps) {
       onLogin();
       navigate('/manager/dashboard');
     } catch (err) {
-      setError('ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้');
+      await Swal.fire({
+        icon: 'error',
+        title: 'เชื่อมต่อไม่สำเร็จ',
+        text: 'ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้',
+        confirmButtonText: 'ตกลง',
+        confirmButtonColor: '#6366F1',
+      });
     }
   };
 
@@ -60,7 +77,6 @@ export default function ManagerLogin({ onLogin }: ManagerLoginProps) {
           </div>
 
           <form onSubmit={handleLogin} className="space-y-6">
-            {error && <div className="text-red-600">{error}</div>}
             <div>
               <label className="block mb-2 text-gray-800">Username</label>
               <input

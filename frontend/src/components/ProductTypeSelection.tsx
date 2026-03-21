@@ -3,9 +3,10 @@ import { ImageWithFallback } from './figma/ImageWithFallback';
 
 interface ProductTypeSelectionProps {
   onSelect: (type: ProductType) => void;
+  onBack: () => void;
 }
 
-export function ProductTypeSelection({ onSelect }: ProductTypeSelectionProps) {
+export function ProductTypeSelection({ onSelect, onBack }: ProductTypeSelectionProps) {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-gradient-to-br from-blue-50 via-cyan-50 to-blue-100">
       <div className="w-full max-w-4xl">
@@ -51,6 +52,16 @@ export function ProductTypeSelection({ onSelect }: ProductTypeSelectionProps) {
               <h3 className="mb-2 text-gray-800">แจกันดอกไม้</h3>
               <p className="text-gray-600 text-sm">แจกันดอกไม้สวยงาม เหมาะสำหรับตั้งโต๊ะและตกแต่ง</p>
             </div>
+          </button>
+        </div>
+
+        <div className="mt-8 flex justify-center">
+          <button
+            onClick={onBack}
+            className="w-full max-w-xs px-8 py-4 rounded-xl border-2 bg-white text-gray-700 text-lg font-semibold transition-all hover:bg-gray-50"
+            style={{ borderColor: '#AEE6FF' }}
+          >
+            กลับไปหน้าแรก
           </button>
         </div>
       </div>
