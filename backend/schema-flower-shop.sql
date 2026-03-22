@@ -65,15 +65,22 @@ CREATE TABLE IF NOT EXISTS product (
   product_name VARCHAR(150) NOT NULL,
   product_price DECIMAL(10,2) NOT NULL DEFAULT 0.00,
   product_img VARCHAR(500) NULL,
+  employee_id BIGINT UNSIGNED NULL,
+  verified_at DATETIME NULL,
+  verified_result VARCHAR(50) NULL,
   is_active TINYINT(1) NOT NULL DEFAULT 1,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  KEY idx_payment_employee (employee_id),
   KEY idx_product_type (product_type_id),
   KEY idx_product_active (is_active),
   CONSTRAINT fk_product_type
     FOREIGN KEY (product_type_id) REFERENCES product_type(product_type_id)
     ON UPDATE CASCADE ON DELETE RESTRICT
 ) ENGINE=InnoDB;
+  CONSTRAINT fk_payment_employee
+    FOREIGN KEY (employee_id) REFERENCES employee(employee_id)
+    ON UPDATE CASCADE ON DELETE SET NULL
 
 CREATE TABLE IF NOT EXISTS branch_container (
   branch_container_id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -204,15 +211,9 @@ CREATE TABLE IF NOT EXISTS shopping_cart (
     ON UPDATE CASCADE ON DELETE RESTRICT
 ) ENGINE=InnoDB;
 
--- -----------------------------------------------------
--- Payment domain
--- -----------------------------------------------------
 
 CREATE TABLE IF NOT EXISTS payment_method (
   payment_method_id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  payment_method_name VARCHAR(50) NOT NULL,
-  UNIQUE KEY uq_payment_method_name (payment_method_name)
-) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS payment (
   payment_id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -235,9 +236,6 @@ CREATE TABLE IF NOT EXISTS payment_evidence (
   payment_evidence_id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   payment_id BIGINT UNSIGNED NOT NULL,
   trans_ref VARCHAR(120) NOT NULL,
-  sender_name VARCHAR(150) NULL,
-  bank VARCHAR(100) NULL,
-  slip_time DATETIME NULL,
   raw_response JSON NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   UNIQUE KEY uq_payment_evidence_trans_ref (trans_ref),

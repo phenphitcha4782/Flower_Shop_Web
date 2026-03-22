@@ -30,6 +30,21 @@ export default function RiderLogin({ onLogin }: RiderLoginProps) {
         });
         return;
       }
+
+      // Check if role_id matches rider role (role_id = 3 in current database)
+      if (data.employee.role_id !== 3) {
+        await Swal.fire({
+          icon: 'warning',
+          title: 'บทบาทไม่ตรงกัน',
+          text: 'คุณไม่มีสิทธิ์เข้าสู่ระบบพนักงานขนส่ง',
+          confirmButtonText: 'ตกลง',
+          confirmButtonColor: '#0EA5E9',
+        });
+        return;
+      }
+
+      // Store employee data in localStorage
+      localStorage.setItem('rider_employee', JSON.stringify(data.employee));
       onLogin();
       navigate('/rider/dashboard');
     } catch (err) {

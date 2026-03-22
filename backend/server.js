@@ -1,6 +1,8 @@
 require('dotenv').config();
 const express = require('express');
 const mysql = require('mysql2/promise');
+const fs = require('fs');
+const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -11,8 +13,52 @@ const { is } = require('express/lib/request');
 
 const upload = multer(); // memory storage
 
+const floristUploadDir = path.join(__dirname, 'uploads', 'florist');
+fs.mkdirSync(floristUploadDir, { recursive: true });
+const riderUploadDir = path.join(__dirname, 'uploads', 'rider');
+fs.mkdirSync(riderUploadDir, { recursive: true });
+
+const floristPhotoUpload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, floristUploadDir),
+    filename: (_req, file, cb) => {
+      const ext = path.extname(file.originalname || '').toLowerCase();
+      const safeExt = ext || '.jpg';
+      cb(null, `florist_${Date.now()}_${Math.round(Math.random() * 1e9)}${safeExt}`);
+    },
+  }),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (file.mimetype && file.mimetype.startsWith('image/')) {
+      cb(null, true);
+      return;
+    }
+    cb(new Error('Only image files are allowed'));
+  },
+});
+
+const riderPhotoUpload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, riderUploadDir),
+    filename: (_req, file, cb) => {
+      const ext = path.extname(file.originalname || '').toLowerCase();
+      const safeExt = ext || '.jpg';
+      cb(null, `rider_${Date.now()}_${Math.round(Math.random() * 1e9)}${safeExt}`);
+    },
+  }),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (file.mimetype && file.mimetype.startsWith('image/')) {
+      cb(null, true);
+      return;
+    }
+    cb(new Error('Only image files are allowed'));
+  },
+});
+
 // Enable CORS
 app.use(express.json());
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
@@ -38,6 +84,19 @@ const getExistingTableName = async (candidateNames) => {
     const [rows] = await pool.query('SHOW TABLES LIKE ?', [tableName]);
     if (Array.isArray(rows) && rows.length > 0) {
       return tableName;
+    }
+  }
+  return null;
+};
+
+const getExistingColumnName = async (tableName, candidateNames) => {
+  for (const columnName of candidateNames) {
+    const [rows] = await pool.query(
+      `SHOW COLUMNS FROM ${tableName} LIKE ?`,
+      [columnName]
+    );
+    if (Array.isArray(rows) && rows.length > 0) {
+      return columnName;
     }
   }
   return null;
@@ -478,6 +537,465 @@ app.get('/api/customers/profile', async (req, res) => {
   }
 });
 
+app.put('/api/customers/profile', async (req, res) => {
+  try {
+    const payload = req.body || {};
+    const normalizedPhone = String(payload.phone || '').replace(/\D/g, '');
+    if (!normalizedPhone) {
+      return res.status(400).json({ error: 'phone is required' });
+    }
+
+    const [customerRows] = await pool.query(
+      `
+      SELECT customer_id
+      FROM customer
+      WHERE REPLACE(REPLACE(REPLACE(phone, '-', ''), ' ', ''), '+', '') = ?
+      ORDER BY customer_id DESC
+      LIMIT 1
+      `,
+      [normalizedPhone]
+    );
+
+    if (!Array.isArray(customerRows) || customerRows.length === 0) {
+      return res.status(404).json({ error: 'Customer not found' });
+    }
+
+    const customerId = Number(customerRows[0].customer_id);
+    const firstName = String(payload.first_name || '-').trim() || '-';
+    const lastName = String(payload.last_name || '-').trim() || '-';
+    const emailRaw = String(payload.email || '').trim();
+    const email = emailRaw || null;
+    const profileImageUrlRaw = String(payload.profile_image_url || '').trim();
+    const profileImageUrl = profileImageUrlRaw || null;
+
+    const rawDate = String(payload.date_of_birth || '').trim();
+    const dateOfBirth = /^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? rawDate : null;
+
+    const genderNameRaw = String(payload.gender_name || '').trim();
+    let genderId = null;
+    if (genderNameRaw) {
+      const normalizedGenderName = genderNameRaw === 'อื่น ๆ' ? 'ไม่ระบุ' : genderNameRaw;
+      const [genderRows] = await pool.query(
+        'SELECT gender_id FROM gender WHERE gender_name = ? LIMIT 1',
+        [normalizedGenderName]
+      );
+      if (Array.isArray(genderRows) && genderRows.length > 0) {
+        genderId = Number(genderRows[0].gender_id);
+      }
+    }
+
+    await pool.query(
+      `
+      UPDATE customer
+      SET
+        customer_name = ?,
+        customer_surname = ?,
+        email = ?,
+        gender_id = ?,
+        date_of_birth = ?,
+        profile_image_url = ?
+      WHERE customer_id = ?
+      `,
+      [firstName, lastName, email, genderId, dateOfBirth, profileImageUrl, customerId]
+    );
+
+    const [updatedRows] = await pool.query(
+      `
+      SELECT
+        c.customer_id,
+        c.customer_name,
+        c.customer_surname,
+        c.email,
+        c.phone,
+        c.gender_id,
+        g.gender_name,
+        c.date_of_birth,
+        c.profile_image_url,
+        c.total_point,
+        c.member_level_id,
+        ml.member_level_name
+      FROM customer c
+      LEFT JOIN gender g ON g.gender_id = c.gender_id
+      LEFT JOIN member_level ml ON ml.member_level_id = c.member_level_id
+      WHERE c.customer_id = ?
+      LIMIT 1
+      `,
+      [customerId]
+    );
+
+    const updated = updatedRows?.[0] || {};
+    return res.json({
+      customer_id: Number(updated.customer_id || customerId),
+      customer_name: updated.customer_name || '-',
+      customer_surname: updated.customer_surname || '-',
+      email: updated.email || null,
+      phone: updated.phone || normalizedPhone,
+      gender_id: updated.gender_id ? Number(updated.gender_id) : null,
+      gender_name: updated.gender_name || null,
+      date_of_birth: updated.date_of_birth || null,
+      profile_image_url: updated.profile_image_url || null,
+      points: Math.max(0, Math.floor(Number(updated.total_point || 0))),
+      member_level_id: Number(updated.member_level_id || 1),
+      member_level_name: updated.member_level_name || `ระดับ ${Number(updated.member_level_id || 1)}`,
+    });
+  } catch (err) {
+    console.error('❌ Update Customer Profile API Error:', err.message);
+    return res.status(500).json({ error: 'Failed to update customer profile', detail: err.message });
+  }
+});
+
+app.get('/api/customers/dashboard', async (req, res) => {
+  try {
+    const normalizedPhone = String(req.query.phone || '').replace(/\D/g, '');
+    if (!normalizedPhone) {
+      return res.status(400).json({ error: 'phone is required' });
+    }
+
+    const [customerRows] = await pool.query(
+      `
+      SELECT
+        c.customer_id,
+        c.customer_name,
+        c.customer_surname,
+        c.email,
+        c.phone,
+        c.gender_id,
+        g.gender_name,
+        c.date_of_birth,
+        c.profile_image_url,
+        c.total_point,
+        c.created_at,
+        c.member_level_id,
+        ml.member_level_name
+      FROM customer c
+      LEFT JOIN gender g ON g.gender_id = c.gender_id
+      LEFT JOIN member_level ml ON ml.member_level_id = c.member_level_id
+      WHERE REPLACE(REPLACE(REPLACE(c.phone, '-', ''), ' ', ''), '+', '') = ?
+      ORDER BY c.customer_id DESC
+      LIMIT 1
+      `,
+      [normalizedPhone]
+    );
+
+    if (!Array.isArray(customerRows) || customerRows.length === 0) {
+      return res.json({
+        profile: {
+          customer_id: null,
+          first_name: '-',
+          last_name: '-',
+          email: null,
+          phone: normalizedPhone,
+          gender_name: null,
+          date_of_birth: null,
+          profile_image_url: null,
+          loyalty_points: 0,
+          member_since: null,
+          member_level: '-',
+          level_progress: {
+            current_level_name: '-',
+            current_level_min_spending: 0,
+            next_level_name: null,
+            next_level_min_spending: null,
+            current_spending: 0,
+            spending_to_next_level: 0,
+            progress_percent: 0,
+            is_max_level: false,
+          },
+        },
+        stats: {
+          total_orders: 0,
+          completed_orders: 0,
+          total_spending: 0,
+          average_order_value: 0,
+          total_promo_usage: 0,
+          redeemed_points: 0,
+          redeemed_discount: 0,
+        },
+        orders: [],
+        promotions: [],
+      });
+    }
+
+    const customer = customerRows[0];
+    const customerId = Number(customer.customer_id);
+
+    const [statRows] = await pool.query(
+      `
+      SELECT
+        COUNT(*) AS total_orders,
+        SUM(CASE WHEN o.order_status IN ('delivered', 'success') THEN 1 ELSE 0 END) AS completed_orders,
+        COALESCE(SUM(o.total_amount), 0) AS total_spending,
+        COALESCE(AVG(o.total_amount), 0) AS average_order_value
+      FROM orders o
+      WHERE o.customer_id = ?
+      `,
+      [customerId]
+    );
+
+    const stats = statRows[0] || {};
+    const customerSpending = Number(stats.total_spending || 0);
+
+    const [memberLevelRows] = await pool.query(
+      `
+      SELECT member_level_id, member_level_name, min_point
+      FROM member_level
+      ORDER BY min_point ASC
+      `
+    );
+
+    const levels = Array.isArray(memberLevelRows)
+      ? memberLevelRows
+          .map((level) => ({
+            ...level,
+            min_point: Number(level.min_point || 0),
+          }))
+          .sort((a, b) => a.min_point - b.min_point)
+      : [];
+
+    const fallbackLevel = {
+      member_level_id: customer.member_level_id,
+      member_level_name: customer.member_level_name || '-',
+      min_point: 0,
+    };
+
+    let currentLevelIndex = 0;
+    if (levels.length > 0) {
+      currentLevelIndex = levels.findIndex((level, index) => {
+        const min = Number(level.min_point || 0);
+        const next = levels[index + 1];
+        const nextMin = next ? Number(next.min_point || 0) : Number.POSITIVE_INFINITY;
+        return customerSpending >= min && customerSpending < nextMin;
+      });
+
+      if (currentLevelIndex < 0) {
+        currentLevelIndex = customerSpending >= Number(levels[levels.length - 1].min_point || 0)
+          ? levels.length - 1
+          : 0;
+      }
+    }
+
+    const currentLevel = levels[currentLevelIndex] || fallbackLevel;
+    const nextLevel = levels.length > 0 ? levels[currentLevelIndex + 1] || null : null;
+    const currentLevelMinSpending = Number(currentLevel.min_point || 0);
+    const nextLevelMinSpending = nextLevel ? Number(nextLevel.min_point || 0) : null;
+    const spendingToNextLevel = nextLevelMinSpending !== null ? Math.max(nextLevelMinSpending - customerSpending, 0) : 0;
+    const progressPercent =
+      nextLevelMinSpending !== null && nextLevelMinSpending > currentLevelMinSpending
+        ? Math.min(
+            100,
+            Math.max(
+              0,
+              ((customerSpending - currentLevelMinSpending) / (nextLevelMinSpending - currentLevelMinSpending)) * 100
+            )
+          )
+        : 100;
+
+    const [orderRows] = await pool.query(
+      `
+      SELECT
+        o.order_id,
+        o.order_code,
+        o.order_status,
+        o.total_amount,
+        o.created_at,
+        b.branch_name
+      FROM orders o
+      LEFT JOIN branch b ON b.branch_id = o.branch_id
+      WHERE o.customer_id = ?
+      ORDER BY o.created_at DESC
+      LIMIT 20
+      `,
+      [customerId]
+    );
+
+    const orderIds = Array.isArray(orderRows)
+      ? orderRows.map((row) => Number(row.order_id)).filter((id) => Number.isFinite(id) && id > 0)
+      : [];
+
+    let orderItemsByOrderId = new Map();
+    if (orderIds.length > 0) {
+      const cartQtyColumn = await getExistingColumnName('shopping_cart', ['quantity', 'qty']);
+      const cartTotalPriceColumn =
+        (await getExistingColumnName('shopping_cart', ['total_price', 'price_total'])) ||
+        'price_total';
+      const qtyExpr = cartQtyColumn ? `sc.${cartQtyColumn}` : '1';
+      const placeholders = orderIds.map(() => '?').join(',');
+      const [orderItemRows] = await pool.query(
+        `
+        SELECT
+          sc.order_id,
+          sc.shopping_cart_id,
+          ${qtyExpr} AS item_qty,
+          sc.${cartTotalPriceColumn} AS item_total,
+          pr.product_name,
+          pr.product_img,
+          pt.product_type_name,
+          GROUP_CONCAT(DISTINCT CONCAT(f.flower_name, ' x', fd.quantity) ORDER BY f.flower_name SEPARATOR ', ') AS flowers,
+          ff.filler_flower_name,
+          wm.wrapping_name,
+          r.ribbon_name,
+          rc.ribbon_color_name,
+          c.card_name,
+          cd.message AS card_message,
+          v.vase_name,
+          mb.monetary_bouquet_name,
+          fs.folding_style_name,
+          mbd.amount AS money_amount
+        FROM shopping_cart sc
+        JOIN product pr ON pr.product_id = sc.product_id
+        LEFT JOIN product_type pt ON pt.product_type_id = pr.product_type_id
+        LEFT JOIN flower_detail fd ON fd.shopping_cart_id = sc.shopping_cart_id
+        LEFT JOIN flower f ON f.flower_id = fd.flower_id
+        LEFT JOIN filler_flower_detail ffd ON ffd.shopping_cart_id = sc.shopping_cart_id
+        LEFT JOIN filler_flower ff ON ff.filler_flower_id = ffd.filler_flower_id
+        LEFT JOIN wrapping_detail wd ON wd.shopping_cart_id = sc.shopping_cart_id
+        LEFT JOIN wrapping_material wm ON wm.wrapping_id = wd.wrapping_id
+        LEFT JOIN ribbon_detail rd ON rd.shopping_cart_id = sc.shopping_cart_id
+        LEFT JOIN ribbon r ON r.ribbon_id = rd.ribbon_id
+        LEFT JOIN ribbon_color rc ON rc.ribbon_color_id = rd.ribbon_color_id
+        LEFT JOIN card_detail cd ON cd.shopping_cart_id = sc.shopping_cart_id
+        LEFT JOIN card c ON c.card_id = cd.card_id
+        LEFT JOIN vase_customization vc ON vc.shopping_cart_id = sc.shopping_cart_id
+        LEFT JOIN vase v ON v.vase_id = vc.vase_id
+        LEFT JOIN monetary_bouquet_detail mbd ON mbd.shopping_cart_id = sc.shopping_cart_id
+        LEFT JOIN monetary_bouquet mb ON mb.monetary_bouquet_id = mbd.monetary_bouquet_id
+        LEFT JOIN folding_style fs ON fs.folding_style_id = mbd.folding_style_id
+        WHERE sc.order_id IN (${placeholders})
+        GROUP BY
+          sc.order_id,
+          sc.shopping_cart_id,
+          sc.${cartTotalPriceColumn},
+          pr.product_name,
+          pr.product_img,
+          pt.product_type_name,
+          ff.filler_flower_name,
+          wm.wrapping_name,
+          r.ribbon_name,
+          rc.ribbon_color_name,
+          c.card_name,
+          cd.message,
+          v.vase_name,
+          mb.monetary_bouquet_name,
+          fs.folding_style_name,
+          mbd.amount
+        ORDER BY sc.order_id DESC, sc.shopping_cart_id ASC
+        `,
+        orderIds
+      );
+
+      orderItemsByOrderId = orderItemRows.reduce((map, row) => {
+        const orderId = Number(row.order_id);
+        const items = map.get(orderId) || [];
+        items.push({
+          shopping_cart_id: Number(row.shopping_cart_id || 0),
+          product_name: row.product_name || '-',
+          product_img: row.product_img || null,
+          product_type_name: row.product_type_name || null,
+          qty: Number(row.item_qty || 0),
+          price_total: Number(row.item_total || 0),
+          flowers: row.flowers || '-',
+          filler_flower_name: row.filler_flower_name || null,
+          wrapping_name: row.wrapping_name || null,
+          ribbon_name: row.ribbon_name || null,
+          ribbon_color_name: row.ribbon_color_name || null,
+          card_name: row.card_name || null,
+          card_message: row.card_message || null,
+          vase_name: row.vase_name || null,
+          monetary_bouquet_name: row.monetary_bouquet_name || null,
+          folding_style_name: row.folding_style_name || null,
+          money_amount: row.money_amount ? Number(row.money_amount) : null,
+        });
+        map.set(orderId, items);
+        return map;
+      }, new Map());
+    }
+
+    const [promotionRows] = await pool.query(
+      `
+      SELECT
+        o.order_code,
+        o.created_at,
+        p.promotion_code,
+        p.promotion_name
+      FROM orders o
+      JOIN promotion p ON p.promotion_id = o.promotion_id
+      WHERE o.customer_id = ?
+      ORDER BY o.created_at DESC
+      LIMIT 20
+      `,
+      [customerId]
+    );
+
+    const [redeemRows] = await pool.query(
+      `
+      SELECT COALESCE(SUM(pt.point), 0) AS redeemed_points
+      FROM point_transaction pt
+      WHERE pt.customer_id = ? AND LOWER(pt.type) = 'redeem'
+      `,
+      [customerId]
+    );
+
+    const redeemedPoints = Number(redeemRows?.[0]?.redeemed_points || 0);
+
+    return res.json({
+      profile: {
+        customer_id: customerId,
+        first_name: customer.customer_name || '-',
+        last_name: customer.customer_surname || '-',
+        email: customer.email || null,
+        phone: customer.phone || normalizedPhone,
+        gender_name: customer.gender_name || null,
+        date_of_birth: customer.date_of_birth || null,
+        profile_image_url: customer.profile_image_url || null,
+        loyalty_points: Number(customer.total_point || 0),
+        member_since: customer.created_at || null,
+        member_level: currentLevel.member_level_name || customer.member_level_name || '-',
+        level_progress: {
+          current_level_name: currentLevel.member_level_name || '-',
+          current_level_min_spending: currentLevelMinSpending,
+          next_level_name: nextLevel ? nextLevel.member_level_name : null,
+          next_level_min_spending: nextLevelMinSpending,
+          current_spending: customerSpending,
+          spending_to_next_level: spendingToNextLevel,
+          progress_percent: progressPercent,
+          is_max_level: !nextLevel,
+        },
+      },
+      stats: {
+        total_orders: Number(stats.total_orders || 0),
+        completed_orders: Number(stats.completed_orders || 0),
+        total_spending: Number(stats.total_spending || 0),
+        average_order_value: Number(stats.average_order_value || 0),
+        total_promo_usage: Array.isArray(promotionRows) ? promotionRows.length : 0,
+        redeemed_points: redeemedPoints,
+        redeemed_discount: Math.floor(redeemedPoints / 10),
+      },
+      orders: Array.isArray(orderRows)
+        ? orderRows.map((row) => ({
+            order_id: row.order_id,
+            order_code: row.order_code,
+            order_status: row.order_status,
+            total_amount: Number(row.total_amount || 0),
+            created_at: row.created_at,
+            branch_name: row.branch_name || '-',
+            items: orderItemsByOrderId.get(Number(row.order_id)) || [],
+          }))
+        : [],
+      promotions: Array.isArray(promotionRows)
+        ? promotionRows.map((row, index) => ({
+            id: `${row.order_code || 'order'}-${index}`,
+            code: row.promotion_code || '-',
+            label: row.promotion_name || 'โปรโมชั่น',
+            date: row.created_at,
+          }))
+        : [],
+    });
+  } catch (err) {
+    console.error('❌ Customer Dashboard API Error:', err.message);
+    return res.status(500).json({ error: 'Failed to load dashboard', detail: err.message });
+  }
+});
+
 // Get active promotions with member levels and promotion type
 app.get('/api/promotions', async (_req, res) => {
   try {
@@ -753,6 +1271,59 @@ app.post('/api/orders', async (req, res) => {
     );
     const orderId = insOrder.insertId;
 
+    const pointsUsed = Math.max(0, Math.floor(Number(payload.points_used || 0)));
+    if (pointsUsed > 0 && customerId) {
+      const [pointRows] = await conn.query(
+        'SELECT total_point FROM customer WHERE customer_id = ? LIMIT 1 FOR UPDATE',
+        [customerId]
+      );
+
+      if (!Array.isArray(pointRows) || pointRows.length === 0) {
+        throw new Error('Customer not found for point redemption');
+      }
+
+      const currentPoints = Math.max(0, Math.floor(Number(pointRows[0].total_point || 0)));
+      if (currentPoints < pointsUsed) {
+        throw new Error(`Insufficient points: requested ${pointsUsed}, available ${currentPoints}`);
+      }
+
+      await conn.query(
+        'UPDATE customer SET total_point = total_point - ? WHERE customer_id = ?',
+        [pointsUsed, customerId]
+      );
+
+      await conn.query(
+        'INSERT INTO point_transaction (customer_id, order_id, type, point) VALUES (?, ?, ?, ?)',
+        [customerId, orderId, 'Redeem', pointsUsed]
+      );
+    }
+
+    if (customerId) {
+      const [spendingRows] = await conn.query(
+        'SELECT COALESCE(SUM(total_amount), 0) AS total_spending FROM orders WHERE customer_id = ?',
+        [customerId]
+      );
+      const totalSpending = Number(spendingRows?.[0]?.total_spending || 0);
+
+      const [memberLevelRows] = await conn.query(
+        'SELECT member_level_id, min_point FROM member_level ORDER BY min_point ASC'
+      );
+
+      if (Array.isArray(memberLevelRows) && memberLevelRows.length > 0) {
+        let targetLevelId = Number(memberLevelRows[0].member_level_id);
+        for (const level of memberLevelRows) {
+          if (totalSpending >= Number(level.min_point || 0)) {
+            targetLevelId = Number(level.member_level_id);
+          }
+        }
+
+        await conn.query(
+          'UPDATE customer SET member_level_id = ? WHERE customer_id = ? AND (member_level_id IS NULL OR member_level_id <> ?)',
+          [targetLevelId, customerId, targetLevelId]
+        );
+      }
+    }
+
     // Insert order address
     await conn.query(
       'INSERT INTO order_address (order_id, receiver_name, receiver_phone, receiver_address) VALUES (?, ?, ?, ?)',
@@ -1010,18 +1581,55 @@ app.post("/api/orders/search", async (req, res) => {
     pr.product_name,
     pr.product_img,
     pt.product_type_name,
-    GROUP_CONCAT(CONCAT('ดอกไม้#', fd.flower_id) ORDER BY fd.flower_id SEPARATOR ', ') AS flowers
+    GROUP_CONCAT(DISTINCT CONCAT(f.flower_name, ' x', fd.quantity) ORDER BY f.flower_name SEPARATOR ', ') AS flowers,
+    ff.filler_flower_name,
+    wm.wrapping_name,
+    r.ribbon_name,
+    rc.ribbon_color_name,
+    c.card_name,
+    cd.message AS card_message,
+    v.vase_name,
+    mb.monetary_bouquet_name,
+    fs.folding_style_name,
+    mbd.amount AS money_amount
   FROM shopping_cart sc
   JOIN product pr ON pr.product_id = sc.product_id
   JOIN product_type pt ON pt.product_type_id = pr.product_type_id
   LEFT JOIN flower_detail fd ON fd.shopping_cart_id = sc.shopping_cart_id
+  LEFT JOIN flower f ON f.flower_id = fd.flower_id
+  LEFT JOIN filler_flower_detail ffd ON ffd.shopping_cart_id = sc.shopping_cart_id
+  LEFT JOIN filler_flower ff ON ff.filler_flower_id = ffd.filler_flower_id
+  LEFT JOIN wrapping_detail wd ON wd.shopping_cart_id = sc.shopping_cart_id
+  LEFT JOIN wrapping_material wm ON wm.wrapping_id = wd.wrapping_id
+  LEFT JOIN ribbon_detail rd ON rd.shopping_cart_id = sc.shopping_cart_id
+  LEFT JOIN ribbon r ON r.ribbon_id = rd.ribbon_id
+  LEFT JOIN ribbon_color rc ON rc.ribbon_color_id = rd.ribbon_color_id
+  LEFT JOIN card_detail cd ON cd.shopping_cart_id = sc.shopping_cart_id
+  LEFT JOIN card c ON c.card_id = cd.card_id
+  LEFT JOIN vase_customization vc ON vc.shopping_cart_id = sc.shopping_cart_id
+  LEFT JOIN vase v ON v.vase_id = vc.vase_id
+  LEFT JOIN monetary_bouquet_detail mbd ON mbd.shopping_cart_id = sc.shopping_cart_id
+  LEFT JOIN monetary_bouquet mb ON mb.monetary_bouquet_id = mbd.monetary_bouquet_id
+  LEFT JOIN folding_style fs ON fs.folding_style_id = mbd.folding_style_id
   WHERE sc.order_id = ?
   GROUP BY 
-  sc.shopping_cart_id,
-  pr.product_name,
-  pr.product_img,
-  pt.product_type_name,
-  sc.total_price;
+    sc.shopping_cart_id,
+    sc.order_id,
+    sc.product_id,
+    sc.total_price,
+    pr.product_name,
+    pr.product_img,
+    pt.product_type_name,
+    ff.filler_flower_name,
+    wm.wrapping_name,
+    r.ribbon_name,
+    rc.ribbon_color_name,
+    c.card_name,
+    cd.message,
+    v.vase_name,
+    mb.monetary_bouquet_name,
+    fs.folding_style_name,
+    mbd.amount;
   `,
       [rows[0].order_id]
     );
@@ -1036,7 +1644,17 @@ app.post("/api/orders/search", async (req, res) => {
       price_total: Number(row.total_price || 0),
       vase_color_name: null,
       bouquet_style_name: null,
-      flowers: row.flowers || '-'
+      flowers: row.flowers || '-',
+      filler_flower_name: row.filler_flower_name || null,
+      wrapping_name: row.wrapping_name || null,
+      ribbon_name: row.ribbon_name || null,
+      ribbon_color_name: row.ribbon_color_name || null,
+      card_name: row.card_name || null,
+      card_message: row.card_message || null,
+      vase_name: row.vase_name || null,
+      monetary_bouquet_name: row.monetary_bouquet_name || null,
+      folding_style_name: row.folding_style_name || null,
+      money_amount: row.money_amount ? Number(row.money_amount) : null,
     }));
 
     return res.json({
@@ -1100,6 +1718,7 @@ app.get('/api/manager/dashboard-stats/:branchId', async (req, res) => {
     const { branchId } = req.params;
     const { date_range, product_type_id } = req.query || {};
     const params = [Number(branchId)];
+    const ordersTable = 'orders';
 
     // Build date condition based on date_range param
     let dateCondition = '';
@@ -1134,7 +1753,7 @@ app.get('/api/manager/dashboard-stats/:branchId', async (req, res) => {
     // Total revenue with date and product type filter
     const revenueSql = `
       SELECT IFNULL(SUM(total_amount), 0) AS total_revenue
-      FROM \`order\` o
+      FROM ${ordersTable} o
       WHERE o.branch_id = ?${dateCondition}${productTypeCondition}
     `;
     const revenueParams = [...params, ...dateParams, ...productTypeParams];
@@ -1143,7 +1762,7 @@ app.get('/api/manager/dashboard-stats/:branchId', async (req, res) => {
     // Order count with date and product type filter
     const orderCountSql = `
       SELECT COUNT(*) AS total_orders
-      FROM \`order\` o
+      FROM ${ordersTable} o
       WHERE o.branch_id = ?${dateCondition}${productTypeCondition}
     `;
     const orderCountParams = [...params, ...dateParams, ...productTypeParams];
@@ -1152,7 +1771,7 @@ app.get('/api/manager/dashboard-stats/:branchId', async (req, res) => {
     // Orders in progress (order_status IN 'received', 'preparing', 'shipping') with date and product type filter
     const inProgressSql = `
       SELECT COUNT(*) AS in_progress_orders
-      FROM \`order\` o
+      FROM ${ordersTable} o
       WHERE o.branch_id = ?${dateCondition} AND o.order_status IN ('received', 'preparing', 'shipping')${productTypeCondition}
     `;
     const inProgressParams = [...params, ...dateParams, ...productTypeParams];
@@ -1180,8 +1799,151 @@ app.get('/api/manager/dashboard-stats/:branchId', async (req, res) => {
 app.get("/api/order/branches/:branchId", async (req, res) => {
   try {
     const branchId = req.params.branchId;
+    const statusFilter = String(req.query.status || 'all').trim().toLowerCase();
+
+    const ordersTable = 'orders';
+    const customerNoteColumn = await getExistingColumnName(ordersTable, ['customer_note']);
+    const customerNoteSelect = customerNoteColumn ? `o.${customerNoteColumn}` : 'NULL';
+    const statusSql = statusFilter === 'all' ? '' : ' AND o.order_status = ?';
+    const params = statusFilter === 'all' ? [branchId] : [branchId, statusFilter];
 
     const [r] = await pool.query(
+      `SELECT 
+        o.order_id,
+        o.order_code,
+        o.branch_id,
+        o.customer_id,
+        c.customer_name,
+        c.phone,
+        oa.receiver_name,
+        oa.receiver_phone,
+        oa.receiver_address,
+        o.total_amount,
+        o.order_status,
+        o.created_at,
+        ${customerNoteSelect} AS customer_note,
+        oi.ordered_items,
+        pm.payment_method_name
+      FROM ${ordersTable} o
+      JOIN customer c ON o.customer_id = c.customer_id
+      LEFT JOIN order_address oa ON oa.order_id = o.order_id
+      LEFT JOIN (
+        SELECT
+          sc.order_id,
+          GROUP_CONCAT(
+            DISTINCT CONCAT_WS(
+              ' | ',
+              CONCAT('สินค้า: ', COALESCE(pr.product_name, '-')),
+              CONCAT('ประเภท: ', COALESCE(pt.product_type_name, '-')),
+              CASE
+                WHEN flowers.main_flowers IS NOT NULL AND flowers.main_flowers <> ''
+                  THEN CONCAT('ดอกหลัก: ', flowers.main_flowers)
+                ELSE NULL
+              END,
+              CASE
+                WHEN ff.filler_flower_name IS NOT NULL AND ff.filler_flower_name <> ''
+                  THEN CONCAT('ดอกแซม: ', ff.filler_flower_name)
+                ELSE NULL
+              END,
+              CASE
+                WHEN wm.wrapping_name IS NOT NULL AND wm.wrapping_name <> ''
+                  THEN CONCAT('ช่อ/ห่อ: ', wm.wrapping_name)
+                ELSE NULL
+              END,
+              CASE
+                WHEN r.ribbon_name IS NOT NULL OR rc.ribbon_color_name IS NOT NULL
+                  THEN CONCAT('ริบบิ้น: ', COALESCE(r.ribbon_name, '-'), IF(rc.ribbon_color_name IS NOT NULL, CONCAT(' (', rc.ribbon_color_name, ')'), ''))
+                ELSE NULL
+              END,
+              CASE
+                WHEN v.vase_name IS NOT NULL AND v.vase_name <> ''
+                  THEN CONCAT('ทรงแจกัน: ', v.vase_name)
+                ELSE NULL
+              END,
+              CASE
+                WHEN c.card_name IS NOT NULL AND c.card_name <> ''
+                  THEN CONCAT('การ์ด: ', c.card_name)
+                ELSE NULL
+              END,
+              CASE
+                WHEN cd.message IS NOT NULL AND cd.message <> ''
+                  THEN CONCAT('ข้อความ: ', cd.message)
+                ELSE NULL
+              END,
+              CASE
+                WHEN mb.monetary_bouquet_name IS NOT NULL AND mb.monetary_bouquet_name <> ''
+                  THEN CONCAT('ช่อเงิน: ', mb.monetary_bouquet_name)
+                ELSE NULL
+              END,
+              CASE
+                WHEN fs.folding_style_name IS NOT NULL AND fs.folding_style_name <> ''
+                  THEN CONCAT('ทรงพับเงิน: ', fs.folding_style_name)
+                ELSE NULL
+              END,
+              CASE
+                WHEN mbd.amount IS NOT NULL THEN CONCAT('จำนวนเงิน: ', mbd.amount)
+                ELSE NULL
+              END
+            )
+            ORDER BY sc.shopping_cart_id
+            SEPARATOR ' || '
+          ) AS ordered_items
+        FROM shopping_cart sc
+        JOIN product pr ON pr.product_id = sc.product_id
+        LEFT JOIN product_type pt ON pt.product_type_id = pr.product_type_id
+        LEFT JOIN (
+          SELECT
+            fd.shopping_cart_id,
+            GROUP_CONCAT(CONCAT(f.flower_name, ' x', fd.quantity) ORDER BY f.flower_name SEPARATOR ', ') AS main_flowers
+          FROM flower_detail fd
+          JOIN flower f ON f.flower_id = fd.flower_id
+          GROUP BY fd.shopping_cart_id
+        ) flowers ON flowers.shopping_cart_id = sc.shopping_cart_id
+        LEFT JOIN filler_flower_detail ffd ON ffd.shopping_cart_id = sc.shopping_cart_id
+        LEFT JOIN filler_flower ff ON ff.filler_flower_id = ffd.filler_flower_id
+        LEFT JOIN wrapping_detail wd ON wd.shopping_cart_id = sc.shopping_cart_id
+        LEFT JOIN wrapping_material wm ON wm.wrapping_id = wd.wrapping_id
+        LEFT JOIN ribbon_detail rd ON rd.shopping_cart_id = sc.shopping_cart_id
+        LEFT JOIN ribbon r ON r.ribbon_id = rd.ribbon_id
+        LEFT JOIN ribbon_color rc ON rc.ribbon_color_id = rd.ribbon_color_id
+        LEFT JOIN card_detail cd ON cd.shopping_cart_id = sc.shopping_cart_id
+        LEFT JOIN card c ON c.card_id = cd.card_id
+        LEFT JOIN vase_customization vc ON vc.shopping_cart_id = sc.shopping_cart_id
+        LEFT JOIN vase v ON v.vase_id = vc.vase_id
+        LEFT JOIN monetary_bouquet_detail mbd ON mbd.shopping_cart_id = sc.shopping_cart_id
+        LEFT JOIN monetary_bouquet mb ON mb.monetary_bouquet_id = mbd.monetary_bouquet_id
+        LEFT JOIN folding_style fs ON fs.folding_style_id = mbd.folding_style_id
+        GROUP BY sc.order_id
+      ) oi ON oi.order_id = o.order_id
+      LEFT JOIN payment p ON o.order_id = p.order_id
+      LEFT JOIN payment_method pm ON p.payment_method_id = pm.payment_method_id
+      WHERE o.branch_id = ?${statusSql}
+      ORDER BY o.created_at DESC`,
+      params
+    );
+
+    res.json(r);
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json(err);
+  }
+});
+
+// Get full order details with shopping cart items (for cashier detail expansion)
+app.get('/api/order/:orderId', async (req, res) => {
+  try {
+    const orderId = Number(req.params.orderId);
+    if (Number.isNaN(orderId) || orderId <= 0) {
+      return res.status(400).json({ error: 'Invalid order ID' });
+    }
+
+    const ordersTable = 'orders';
+    const customerNoteColumn = await getExistingColumnName(ordersTable, ['customer_note']);
+    const customerNoteSelect = customerNoteColumn ? `o.${customerNoteColumn}` : 'NULL';
+
+    // Fetch order details
+    const [orderRows] = await pool.query(
       `SELECT 
         o.order_id,
         o.order_code,
@@ -1192,22 +1954,111 @@ app.get("/api/order/branches/:branchId", async (req, res) => {
         o.total_amount,
         o.order_status,
         o.created_at,
-        o.customer_note,
-        pm.payment_method_name
-      FROM \`order\` o
+        ${customerNoteSelect} AS customer_note,
+        pm.payment_method_name,
+        b.branch_name,
+        oa.receiver_name,
+        oa.receiver_phone,
+        oa.receiver_address
+      FROM ${ordersTable} o
       JOIN customer c ON o.customer_id = c.customer_id
       LEFT JOIN payment p ON o.order_id = p.order_id
       LEFT JOIN payment_method pm ON p.payment_method_id = pm.payment_method_id
-      WHERE o.branch_id = ?
-      ORDER BY o.created_at DESC`,
-      [branchId]
+      LEFT JOIN branch b ON o.branch_id = b.branch_id
+      LEFT JOIN order_address oa ON o.order_id = oa.order_id
+      WHERE o.order_id = ?
+      LIMIT 1`,
+      [orderId]
     );
 
-    res.json(r);
+    if (!orderRows || orderRows.length === 0) {
+      return res.status(404).json({ error: 'Order not found' });
+    }
 
+    // Fetch shopping cart items with all customization details
+    const [cartItems] = await pool.query(
+      `SELECT 
+        sc.*,
+        pr.product_name,
+        pr.product_img,
+        pt.product_type_name,
+        GROUP_CONCAT(DISTINCT CONCAT(f.flower_name, ' x', fd.quantity) ORDER BY f.flower_name SEPARATOR ', ') AS flowers,
+        ff.filler_flower_name,
+        wm.wrapping_name,
+        r.ribbon_name,
+        rc.ribbon_color_name,
+        c.card_name,
+        cd.message AS card_message,
+        v.vase_name,
+        mb.monetary_bouquet_name,
+        fs.folding_style_name,
+        mbd.amount AS money_amount
+      FROM shopping_cart sc
+      JOIN product pr ON pr.product_id = sc.product_id
+      LEFT JOIN product_type pt ON pt.product_type_id = pr.product_type_id
+      LEFT JOIN flower_detail fd ON fd.shopping_cart_id = sc.shopping_cart_id
+      LEFT JOIN flower f ON f.flower_id = fd.flower_id
+      LEFT JOIN filler_flower_detail ffd ON ffd.shopping_cart_id = sc.shopping_cart_id
+      LEFT JOIN filler_flower ff ON ff.filler_flower_id = ffd.filler_flower_id
+      LEFT JOIN wrapping_detail wd ON wd.shopping_cart_id = sc.shopping_cart_id
+      LEFT JOIN wrapping_material wm ON wm.wrapping_id = wd.wrapping_id
+      LEFT JOIN ribbon_detail rd ON rd.shopping_cart_id = sc.shopping_cart_id
+      LEFT JOIN ribbon r ON r.ribbon_id = rd.ribbon_id
+      LEFT JOIN ribbon_color rc ON rc.ribbon_color_id = rd.ribbon_color_id
+      LEFT JOIN card_detail cd ON cd.shopping_cart_id = sc.shopping_cart_id
+      LEFT JOIN card c ON c.card_id = cd.card_id
+      LEFT JOIN vase_customization vc ON vc.shopping_cart_id = sc.shopping_cart_id
+      LEFT JOIN vase v ON v.vase_id = vc.vase_id
+      LEFT JOIN monetary_bouquet_detail mbd ON mbd.shopping_cart_id = sc.shopping_cart_id
+      LEFT JOIN monetary_bouquet mb ON mb.monetary_bouquet_id = mbd.monetary_bouquet_id
+      LEFT JOIN folding_style fs ON fs.folding_style_id = mbd.folding_style_id
+      WHERE sc.order_id = ?
+      GROUP BY 
+        sc.shopping_cart_id,
+        sc.order_id,
+        sc.product_id,
+        sc.total_price,
+        pr.product_name,
+        pr.product_img,
+        pt.product_type_name,
+        ff.filler_flower_name,
+        wm.wrapping_name,
+        r.ribbon_name,
+        rc.ribbon_color_name,
+        c.card_name,
+        cd.message,
+        v.vase_name,
+        mb.monetary_bouquet_name,
+        fs.folding_style_name,
+        mbd.amount
+      ORDER BY sc.shopping_cart_id ASC`,
+      [orderId]
+    );
+
+    const order = orderRows[0];
+    const items = cartItems.map((row) => ({
+      ...row,
+      price_total: Number(row.total_price || 0),
+      flowers: row.flowers || '-',
+      filler_flower_name: row.filler_flower_name || null,
+      wrapping_name: row.wrapping_name || null,
+      ribbon_name: row.ribbon_name || null,
+      ribbon_color_name: row.ribbon_color_name || null,
+      card_name: row.card_name || null,
+      card_message: row.card_message || null,
+      vase_name: row.vase_name || null,
+      monetary_bouquet_name: row.monetary_bouquet_name || null,
+      folding_style_name: row.folding_style_name || null,
+      money_amount: row.money_amount ? Number(row.money_amount) : null,
+    }));
+
+    return res.json({
+      order,
+      items
+    });
   } catch (err) {
-    console.error(err);
-    res.status(500).json(err);
+    console.error('❌ Get Order Details Error:', err.message);
+    return res.status(500).json({ error: 'Failed to load order details', detail: err.message });
   }
 });
 
@@ -1219,21 +2070,454 @@ app.listen(PORT, () => console.log(`✅ API listening on http://localhost:${PORT
 app.put('/api/order/:orderIdentifier/status', async (req, res) => {
   try {
     const { orderIdentifier } = req.params;
-    const { status } = req.body || {};
+    const { status, employee_id, verified_result } = req.body || {};
     if (!status) return res.status(400).json({ message: 'status is required' });
+
+    // Normalize status aliases to match enum definitions across environments
+    const requestedStatus = String(status).toLowerCase().trim();
+    const [statusColumnRows] = await pool.query("SHOW COLUMNS FROM orders LIKE 'order_status'");
+    const statusColumn = statusColumnRows?.[0]?.Type || '';
+    const enumBodyMatch = statusColumn.match(/enum\((.*)\)/i);
+    const enumBody = enumBodyMatch?.[1] || '';
+    const allowedStatuses = Array.from(enumBody.matchAll(/'([^']+)'/g)).map((m) => m[1]);
+
+    let normalizedStatus = requestedStatus;
+    if (requestedStatus === 'canceled' && allowedStatuses.includes('cancelled')) {
+      normalizedStatus = 'cancelled';
+    }
+    if (requestedStatus === 'cancelled' && allowedStatuses.includes('canceled')) {
+      normalizedStatus = 'canceled';
+    }
+    if (requestedStatus === 'rejected' && allowedStatuses.includes('cancelled')) {
+      normalizedStatus = 'cancelled';
+    }
+    if (requestedStatus === 'rejected' && allowedStatuses.includes('canceled')) {
+      normalizedStatus = 'canceled';
+    }
+
+    if (allowedStatuses.length > 0 && !allowedStatuses.includes(normalizedStatus)) {
+      return res.status(400).json({
+        message: 'Invalid status value',
+        allowedStatuses
+      });
+    }
 
     // Try to treat identifier as numeric order_id, otherwise use order_code
     const maybeId = Number(orderIdentifier);
+    let orderId;
     let result;
     if (!Number.isNaN(maybeId)) {
-      [result] = await pool.query('UPDATE `order` SET order_status = ? WHERE order_id = ?', [status, maybeId]);
+      [result] = await pool.query('UPDATE orders SET order_status = ? WHERE order_id = ?', [normalizedStatus, maybeId]);
+      orderId = maybeId;
     } else {
-      [result] = await pool.query('UPDATE `order` SET order_status = ? WHERE order_code = ?', [status, orderIdentifier]);
+      [result] = await pool.query('UPDATE orders SET order_status = ? WHERE order_code = ?', [normalizedStatus, orderIdentifier]);
+      // Get order_id from order_code
+      const [orderRows] = await pool.query('SELECT order_id FROM orders WHERE order_code = ?', [orderIdentifier]);
+      orderId = orderRows[0]?.order_id || null;
     }
 
-    return res.json({ success: true, changedRows: result.affectedRows || 0, status });
+    // Update payment table with verification details
+    if (orderId && verified_result) {
+      // Get Thailand timezone (GMT+7)
+      const now = new Date();
+      const thaiTime = new Date(now.getTime() + (7 * 60 * 60 * 1000));
+      const verifiedAt = thaiTime.toISOString().slice(0, 19).replace('T', ' ');
+      await pool.query(
+        'UPDATE payment SET employee_id = ?, verified_at = ?, verified_result = ? WHERE order_id = ?',
+        [employee_id || null, verifiedAt, verified_result, orderId]
+      );
+    }
+
+    return res.json({ success: true, changedRows: result.affectedRows || 0, status: normalizedStatus });
   } catch (err) {
     console.error('❌ Update order status error:', err);
+    return res.status(500).json({ message: 'Server error', detail: err.message });
+  }
+});
+
+// Create prepare record when florist accepts order
+app.post('/api/prepare', async (req, res) => {
+  try {
+    const { order_id, employee_id } = req.body || {};
+    if (!order_id || !employee_id) {
+      return res.status(400).json({ message: 'order_id and employee_id are required' });
+    }
+
+    // Check if prepare record already exists
+    const [existing] = await pool.query('SELECT * FROM prepare WHERE order_id = ? LIMIT 1', [order_id]);
+    if (existing && existing.length > 0) {
+      const row = existing[0];
+      const isActiveTask = ['assigning', 'preparing'].includes(String(row.prepare_status || '').toLowerCase());
+      const sameEmployee = Number(row.employee_id) === Number(employee_id);
+
+      // Idempotent behavior: if same florist clicks accept again, keep it successful and sync order status.
+      if (isActiveTask && sameEmployee) {
+        await pool.query('UPDATE orders SET order_status = ? WHERE order_id = ?', ['preparing', order_id]);
+        return res.json({
+          success: true,
+          prepare_id: row.prepare_id,
+          already_assigned: true,
+          message: 'Order already assigned to this florist'
+        });
+      }
+
+      if (isActiveTask && !sameEmployee) {
+        return res.status(409).json({
+          success: false,
+          message: 'Order is already assigned to another florist'
+        });
+      }
+
+      // Re-open/overwrite old completed row for re-assignment if needed.
+      const now = new Date();
+      const thaiTime = new Date(now.getTime() + (7 * 60 * 60 * 1000));
+      const assignedAt = thaiTime.toISOString().slice(0, 19).replace('T', ' ');
+      await pool.query(
+        'UPDATE prepare SET employee_id = ?, prepare_status = ?, assigned_at = ?, completed_at = NULL WHERE prepare_id = ?',
+        [employee_id, 'assigning', assignedAt, row.prepare_id]
+      );
+      await pool.query('UPDATE orders SET order_status = ? WHERE order_id = ?', ['preparing', order_id]);
+      return res.json({ success: true, prepare_id: row.prepare_id, reassigned: true });
+    }
+
+    // Get Thailand timezone
+    const now = new Date();
+    const thaiTime = new Date(now.getTime() + (7 * 60 * 60 * 1000));
+    const assignedAt = thaiTime.toISOString().slice(0, 19).replace('T', ' ');
+
+    // Insert prepare record
+    const [result] = await pool.query(
+      'INSERT INTO prepare (order_id, employee_id, prepare_status, assigned_at) VALUES (?, ?, ?, ?)',
+      [order_id, employee_id, 'assigning', assignedAt]
+    );
+
+    // Update order status to 'preparing'
+    await pool.query('UPDATE orders SET order_status = ? WHERE order_id = ?', ['preparing', order_id]);
+
+    return res.json({ success: true, prepare_id: result.insertId });
+  } catch (err) {
+    console.error('❌ Create prepare record error:', err);
+    return res.status(500).json({ message: 'Server error', detail: err.message });
+  }
+});
+
+// Get florist's preparing orders
+app.get('/api/prepare/employee/:employeeId', async (req, res) => {
+  try {
+    const { employeeId } = req.params;
+    if (!employeeId) {
+      return res.status(400).json({ message: 'employeeId is required' });
+    }
+
+    const [rows] = await pool.query(`
+      SELECT 
+        o.order_id, o.order_code, o.customer_id, c.customer_name, c.phone,
+        o.total_amount, o.created_at, oa.receiver_name, oa.receiver_phone, oa.receiver_address,
+        oi.ordered_items,
+        p.prepare_id, p.employee_id, p.assigned_at, p.florist_photo_url, p.completed_at, p.prepare_status
+      FROM orders o
+      LEFT JOIN prepare p ON o.order_id = p.order_id
+      LEFT JOIN customer c ON o.customer_id = c.customer_id
+      LEFT JOIN order_address oa ON oa.order_id = o.order_id
+      LEFT JOIN (
+        SELECT
+          sc.order_id,
+          GROUP_CONCAT(
+            DISTINCT CONCAT_WS(
+              ' | ',
+              CONCAT('สินค้า: ', COALESCE(pr.product_name, '-')),
+              CONCAT('ประเภท: ', COALESCE(pt.product_type_name, '-')),
+              CASE
+                WHEN flowers.main_flowers IS NOT NULL AND flowers.main_flowers <> ''
+                  THEN CONCAT('ดอกหลัก: ', flowers.main_flowers)
+                ELSE NULL
+              END,
+              CASE
+                WHEN ff.filler_flower_name IS NOT NULL AND ff.filler_flower_name <> ''
+                  THEN CONCAT('ดอกแซม: ', ff.filler_flower_name)
+                ELSE NULL
+              END,
+              CASE
+                WHEN wm.wrapping_name IS NOT NULL AND wm.wrapping_name <> ''
+                  THEN CONCAT('ช่อ/ห่อ: ', wm.wrapping_name)
+                ELSE NULL
+              END,
+              CASE
+                WHEN r.ribbon_name IS NOT NULL OR rc.ribbon_color_name IS NOT NULL
+                  THEN CONCAT('ริบบิ้น: ', COALESCE(r.ribbon_name, '-'), IF(rc.ribbon_color_name IS NOT NULL, CONCAT(' (', rc.ribbon_color_name, ')'), ''))
+                ELSE NULL
+              END,
+              CASE
+                WHEN v.vase_name IS NOT NULL AND v.vase_name <> ''
+                  THEN CONCAT('ทรงแจกัน: ', v.vase_name)
+                ELSE NULL
+              END,
+              CASE
+                WHEN c.card_name IS NOT NULL AND c.card_name <> ''
+                  THEN CONCAT('การ์ด: ', c.card_name)
+                ELSE NULL
+              END,
+              CASE
+                WHEN cd.message IS NOT NULL AND cd.message <> ''
+                  THEN CONCAT('ข้อความ: ', cd.message)
+                ELSE NULL
+              END,
+              CASE
+                WHEN mb.monetary_bouquet_name IS NOT NULL AND mb.monetary_bouquet_name <> ''
+                  THEN CONCAT('ช่อเงิน: ', mb.monetary_bouquet_name)
+                ELSE NULL
+              END,
+              CASE
+                WHEN fs.folding_style_name IS NOT NULL AND fs.folding_style_name <> ''
+                  THEN CONCAT('ทรงพับเงิน: ', fs.folding_style_name)
+                ELSE NULL
+              END,
+              CASE
+                WHEN mbd.amount IS NOT NULL THEN CONCAT('จำนวนเงิน: ', mbd.amount)
+                ELSE NULL
+              END
+            )
+            ORDER BY sc.shopping_cart_id
+            SEPARATOR ' || '
+          ) AS ordered_items
+        FROM shopping_cart sc
+        JOIN product pr ON pr.product_id = sc.product_id
+        LEFT JOIN product_type pt ON pt.product_type_id = pr.product_type_id
+        LEFT JOIN (
+          SELECT
+            fd.shopping_cart_id,
+            GROUP_CONCAT(CONCAT(f.flower_name, ' x', fd.quantity) ORDER BY f.flower_name SEPARATOR ', ') AS main_flowers
+          FROM flower_detail fd
+          JOIN flower f ON f.flower_id = fd.flower_id
+          GROUP BY fd.shopping_cart_id
+        ) flowers ON flowers.shopping_cart_id = sc.shopping_cart_id
+        LEFT JOIN filler_flower_detail ffd ON ffd.shopping_cart_id = sc.shopping_cart_id
+        LEFT JOIN filler_flower ff ON ff.filler_flower_id = ffd.filler_flower_id
+        LEFT JOIN wrapping_detail wd ON wd.shopping_cart_id = sc.shopping_cart_id
+        LEFT JOIN wrapping_material wm ON wm.wrapping_id = wd.wrapping_id
+        LEFT JOIN ribbon_detail rd ON rd.shopping_cart_id = sc.shopping_cart_id
+        LEFT JOIN ribbon r ON r.ribbon_id = rd.ribbon_id
+        LEFT JOIN ribbon_color rc ON rc.ribbon_color_id = rd.ribbon_color_id
+        LEFT JOIN card_detail cd ON cd.shopping_cart_id = sc.shopping_cart_id
+        LEFT JOIN card c ON c.card_id = cd.card_id
+        LEFT JOIN vase_customization vc ON vc.shopping_cart_id = sc.shopping_cart_id
+        LEFT JOIN vase v ON v.vase_id = vc.vase_id
+        LEFT JOIN monetary_bouquet_detail mbd ON mbd.shopping_cart_id = sc.shopping_cart_id
+        LEFT JOIN monetary_bouquet mb ON mb.monetary_bouquet_id = mbd.monetary_bouquet_id
+        LEFT JOIN folding_style fs ON fs.folding_style_id = mbd.folding_style_id
+        GROUP BY sc.order_id
+      ) oi ON oi.order_id = o.order_id
+      WHERE p.employee_id = ? AND p.prepare_status IN ('assigning', 'preparing')
+      ORDER BY o.created_at DESC
+    `, [employeeId]);
+
+    return res.json(rows || []);
+  } catch (err) {
+    console.error('❌ Get prepare orders error:', err);
+    return res.status(500).json({ message: 'Server error', detail: err.message });
+  }
+});
+
+// Complete prepare task
+app.put('/api/prepare/:orderId', floristPhotoUpload.single('florist_photo'), async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const { florist_photo_url } = req.body || {};
+    if (!orderId) {
+      return res.status(400).json({ message: 'orderId is required' });
+    }
+
+    const uploadedPhotoUrl = req.file
+      ? `${req.protocol}://${req.get('host')}/uploads/florist/${req.file.filename}`
+      : null;
+    const finalPhotoUrl = uploadedPhotoUrl || florist_photo_url || null;
+
+    // Get Thailand timezone
+    const now = new Date();
+    const thaiTime = new Date(now.getTime() + (7 * 60 * 60 * 1000));
+    const completedAt = thaiTime.toISOString().slice(0, 19).replace('T', ' ');
+
+    // Update prepare record
+    const [result] = await pool.query(
+      'UPDATE prepare SET florist_photo_url = ?, completed_at = ?, prepare_status = ? WHERE order_id = ?',
+      [finalPhotoUrl, completedAt, 'completed', orderId]
+    );
+
+    // Update order status to 'shipping'
+    await pool.query('UPDATE orders SET order_status = ? WHERE order_id = ?', ['shipping', orderId]);
+
+    return res.json({ success: true, changedRows: result.affectedRows || 0 });
+  } catch (err) {
+    console.error('❌ Complete prepare error:', err);
+    return res.status(500).json({ message: 'Server error', detail: err.message });
+  }
+});
+
+// Create delivery record when rider accepts shipping order
+app.post('/api/delivery', async (req, res) => {
+  try {
+    const { order_id, employee_id } = req.body || {};
+    if (!order_id || !employee_id) {
+      return res.status(400).json({ message: 'order_id and employee_id are required' });
+    }
+
+    const [existing] = await pool.query('SELECT * FROM delivery WHERE order_id = ? LIMIT 1', [order_id]);
+    if (Array.isArray(existing) && existing.length > 0) {
+      const row = existing[0];
+      const status = String(row.delivery_status || '').toLowerCase();
+      const isActiveTask = ['assigning', 'delivering'].includes(status);
+      const sameEmployee = Number(row.employee_id) === Number(employee_id);
+
+      if (isActiveTask && sameEmployee) {
+        await pool.query('UPDATE orders SET order_status = ? WHERE order_id = ?', ['shipping', order_id]);
+        return res.json({ success: true, delivery_id: row.delivery_id, already_assigned: true });
+      }
+
+      if (isActiveTask && !sameEmployee) {
+        return res.status(409).json({ success: false, message: 'Order is already assigned to another rider' });
+      }
+
+      const now = new Date();
+      const thaiTime = new Date(now.getTime() + (7 * 60 * 60 * 1000));
+      const assignedAt = thaiTime.toISOString().slice(0, 19).replace('T', ' ');
+      await pool.query(
+        'UPDATE delivery SET employee_id = ?, delivery_status = ?, assigned_at = ?, completed_at = NULL WHERE delivery_id = ?',
+        [employee_id, 'assigning', assignedAt, row.delivery_id]
+      );
+      await pool.query('UPDATE orders SET order_status = ? WHERE order_id = ?', ['shipping', order_id]);
+      return res.json({ success: true, delivery_id: row.delivery_id, reassigned: true });
+    }
+
+    const now = new Date();
+    const thaiTime = new Date(now.getTime() + (7 * 60 * 60 * 1000));
+    const assignedAt = thaiTime.toISOString().slice(0, 19).replace('T', ' ');
+
+    const [result] = await pool.query(
+      'INSERT INTO delivery (order_id, employee_id, delivery_status, assigned_at) VALUES (?, ?, ?, ?)',
+      [order_id, employee_id, 'assigning', assignedAt]
+    );
+
+    await pool.query('UPDATE orders SET order_status = ? WHERE order_id = ?', ['shipping', order_id]);
+
+    return res.json({ success: true, delivery_id: result.insertId });
+  } catch (err) {
+    console.error('❌ Create delivery record error:', err);
+    return res.status(500).json({ message: 'Server error', detail: err.message });
+  }
+});
+
+// Get rider's active delivery tasks
+app.get('/api/delivery/employee/:employeeId', async (req, res) => {
+  try {
+    const { employeeId } = req.params;
+    if (!employeeId) {
+      return res.status(400).json({ message: 'employeeId is required' });
+    }
+
+    const [rows] = await pool.query(
+      `
+      SELECT
+        o.order_id, o.order_code, o.customer_id, c.customer_name, c.phone,
+        o.total_amount, o.created_at, oa.receiver_name, oa.receiver_phone, oa.receiver_address,
+        oi.ordered_items,
+        d.delivery_id, d.employee_id, d.assigned_at, d.rider_photo_url, d.completed_at, d.delivery_status
+      FROM orders o
+      LEFT JOIN delivery d ON o.order_id = d.order_id
+      LEFT JOIN customer c ON o.customer_id = c.customer_id
+      LEFT JOIN order_address oa ON oa.order_id = o.order_id
+      LEFT JOIN (
+        SELECT
+          sc.order_id,
+          GROUP_CONCAT(DISTINCT pr.product_name ORDER BY pr.product_name SEPARATOR ', ') AS ordered_items
+        FROM shopping_cart sc
+        JOIN product pr ON pr.product_id = sc.product_id
+        GROUP BY sc.order_id
+      ) oi ON oi.order_id = o.order_id
+      WHERE d.employee_id = ? AND d.delivery_status IN ('assigning', 'delivering')
+      ORDER BY o.created_at DESC
+      `,
+      [employeeId]
+    );
+
+    return res.json(rows || []);
+  } catch (err) {
+    console.error('❌ Get rider delivery orders error:', err);
+    return res.status(500).json({ message: 'Server error', detail: err.message });
+  }
+});
+
+// Get delivery detail by order for rider delivery screen
+app.get('/api/delivery/order/:orderId', async (req, res) => {
+  try {
+    const orderId = Number(req.params.orderId);
+    if (!Number.isFinite(orderId) || orderId <= 0) {
+      return res.status(400).json({ message: 'Invalid orderId' });
+    }
+
+    const [rows] = await pool.query(
+      `
+      SELECT
+        o.order_id, o.order_code, o.order_status, o.total_amount, o.created_at,
+        c.customer_name, c.phone,
+        oa.receiver_name, oa.receiver_phone, oa.receiver_address,
+        d.delivery_id, d.employee_id, d.delivery_status, d.rider_photo_url, d.assigned_at, d.completed_at
+      FROM orders o
+      LEFT JOIN customer c ON c.customer_id = o.customer_id
+      LEFT JOIN order_address oa ON oa.order_id = o.order_id
+      LEFT JOIN delivery d ON d.order_id = o.order_id
+      WHERE o.order_id = ?
+      LIMIT 1
+      `,
+      [orderId]
+    );
+
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return res.status(404).json({ message: 'Order not found' });
+    }
+
+    return res.json(rows[0]);
+  } catch (err) {
+    console.error('❌ Get delivery detail error:', err);
+    return res.status(500).json({ message: 'Server error', detail: err.message });
+  }
+});
+
+// Complete delivery with rider photo and update order to delivered
+app.put('/api/delivery/:orderId/complete', riderPhotoUpload.single('rider_photo'), async (req, res) => {
+  try {
+    const orderId = Number(req.params.orderId);
+    const { rider_photo_url } = req.body || {};
+    if (!Number.isFinite(orderId) || orderId <= 0) {
+      return res.status(400).json({ message: 'Invalid orderId' });
+    }
+
+    const uploadedPhotoUrl = req.file
+      ? `${req.protocol}://${req.get('host')}/uploads/rider/${req.file.filename}`
+      : null;
+    const finalPhotoUrl = uploadedPhotoUrl || rider_photo_url || null;
+
+    if (!finalPhotoUrl) {
+      return res.status(400).json({ message: 'rider photo is required' });
+    }
+
+    const now = new Date();
+    const thaiTime = new Date(now.getTime() + (7 * 60 * 60 * 1000));
+    const completedAt = thaiTime.toISOString().slice(0, 19).replace('T', ' ');
+
+    const [result] = await pool.query(
+      'UPDATE delivery SET rider_photo_url = ?, completed_at = ?, delivery_status = ? WHERE order_id = ?',
+      [finalPhotoUrl, completedAt, 'completed', orderId]
+    );
+
+    if (!result || result.affectedRows === 0) {
+      return res.status(404).json({ message: 'Delivery task not found for this order' });
+    }
+
+    await pool.query('UPDATE orders SET order_status = ? WHERE order_id = ?', ['delivered', orderId]);
+
+    return res.json({ success: true, changedRows: result.affectedRows || 0, rider_photo_url: finalPhotoUrl });
+  } catch (err) {
+    console.error('❌ Complete delivery error:', err);
     return res.status(500).json({ message: 'Server error', detail: err.message });
   }
 });
@@ -1530,10 +2814,11 @@ app.get('/api/manager/weekly-sales/:branchId', async (req, res) => {
   try {
     const { branchId } = req.params;
     const params = [Number(branchId)];
+    const ordersTable = 'orders';
 
     const sql = `
       SELECT DATE(o.created_at) AS date, IFNULL(SUM(o.total_amount),0) AS sales
-      FROM \`order\` o
+      FROM ${ordersTable} o
       WHERE o.branch_id = ? AND DATE(o.created_at) >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)
       GROUP BY DATE(o.created_at)
       ORDER BY DATE(o.created_at)
@@ -1564,6 +2849,7 @@ app.get('/api/manager/top-products/:branchId', async (req, res) => {
     const { branchId } = req.params;
     const { date_range, product_type_id } = req.query || {};
     const params = [Number(branchId)];
+    const ordersTable = (await getExistingTableName(['orders', 'order'])) || 'orders';
 
     // Build date condition based on date_range param
     let dateCondition = '';
@@ -1595,14 +2881,20 @@ app.get('/api/manager/top-products/:branchId', async (req, res) => {
       }
     }
 
+    const cartQtyColumn = await getExistingColumnName('shopping_cart', ['quantity', 'qty']);
+    const cartTotalPriceColumn =
+      (await getExistingColumnName('shopping_cart', ['total_price', 'price_total'])) ||
+      'price_total';
+    const qtySoldExpr = cartQtyColumn ? `SUM(sc.${cartQtyColumn})` : 'COUNT(*)';
+
     const sql = `
       SELECT pr.product_id,
              pr.product_name,
-             IFNULL(SUM(sc.qty),0) AS qty_sold,
-             IFNULL(SUM(sc.qty * sc.price_total),0) AS revenue,
+             IFNULL(${qtySoldExpr},0) AS qty_sold,
+             IFNULL(SUM(sc.${cartTotalPriceColumn}),0) AS revenue,
              pt.product_type_name AS product_type
       FROM shopping_cart sc
-      JOIN \`order\` o ON sc.order_id = o.order_id
+      JOIN ${ordersTable} o ON sc.order_id = o.order_id
       JOIN product pr ON pr.product_id = sc.product_id
       LEFT JOIN product_type pt ON pt.product_type_id = pr.product_type_id
       WHERE o.branch_id = ?${dateCondition}${productTypeCondition}
@@ -1625,15 +2917,16 @@ app.get('/api/order/date-info/:branchId', async (req, res) => {
   try {
     const { branchId } = req.params;
     const params = [Number(branchId)];
+    const ordersTable = (await getExistingTableName(['orders', 'order'])) || 'orders';
 
     const [minmaxRows] = await pool.query(
-      `SELECT MIN(DATE(created_at)) AS min_date, MAX(DATE(created_at)) AS max_date FROM \`order\` WHERE branch_id = ?`,
+      `SELECT MIN(DATE(created_at)) AS min_date, MAX(DATE(created_at)) AS max_date FROM ${ordersTable} WHERE branch_id = ?`,
       params
     );
 
     const [monthsRows] = await pool.query(
       `SELECT YEAR(created_at) AS y, MONTH(created_at) AS m, COUNT(*) AS cnt
-       FROM \`order\`
+       FROM ${ordersTable}
        WHERE branch_id = ?
        GROUP BY YEAR(created_at), MONTH(created_at)
        ORDER BY YEAR(created_at) DESC, MONTH(created_at) DESC`,
@@ -1651,3 +2944,4 @@ app.get('/api/order/date-info/:branchId', async (req, res) => {
     return res.status(500).json({ error: 'Server error', detail: err.message });
   }
 });
+

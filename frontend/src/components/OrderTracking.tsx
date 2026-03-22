@@ -9,12 +9,12 @@ interface OrderTrackingProps {
   onBackToHome: () => void;
 }
 
-type OrderStatus = 'received' | 'preparing' | 'shipping' | 'delivered';
+type OrderStatus = 'waiting' | 'received' | 'preparing' | 'shipping' | 'delivered';
 
 export function OrderTracking({ savedOrders, onBackToHome }: OrderTrackingProps) {
   const [searchOrderId, setSearchOrderId] = useState('');
   const [currentOrder, setCurrentOrder] = useState<any>(null);
-  const [orderStatus, setOrderStatus] = useState<OrderStatus>('received');
+  const [orderStatus, setOrderStatus] = useState<OrderStatus>('waiting');
 
   const handleSearch = async () => {
     const data = await searchOrder(searchOrderId);
@@ -22,7 +22,18 @@ export function OrderTracking({ savedOrders, onBackToHome }: OrderTrackingProps)
     if (data.message === "พบคำสั่งซื้อ") {
       setCurrentOrder(data);
       console.log("currentOrder", data);
-      setOrderStatus(data.order.order_status as OrderStatus);
+      const nextStatus = String(data.order.order_status || '').toLowerCase();
+      if (
+        nextStatus === 'waiting' ||
+        nextStatus === 'received' ||
+        nextStatus === 'preparing' ||
+        nextStatus === 'shipping' ||
+        nextStatus === 'delivered'
+      ) {
+        setOrderStatus(nextStatus as OrderStatus);
+      } else {
+        setOrderStatus('waiting');
+      }
     } else {
       setCurrentOrder(null);
       NotFoundAlert();
@@ -49,6 +60,7 @@ export function OrderTracking({ savedOrders, onBackToHome }: OrderTrackingProps)
   }
 
   const statusSteps = [
+    { status: 'waiting', label: 'กำลังรอยืนยัน', icon: Clock },
     { status: 'received', label: 'รับคำสั่งซื้อ', icon: Package },
     { status: 'preparing', label: 'กำลังจัดเตรียม', icon: Clock },
     { status: 'shipping', label: 'กำลังจัดส่ง', icon: Truck },
@@ -56,10 +68,52 @@ export function OrderTracking({ savedOrders, onBackToHome }: OrderTrackingProps)
   ];
 
   const getStatusIndex = (status: OrderStatus): number => {
-    return statusSteps.findIndex(step => step.status === status);
+    const index = statusSteps.findIndex(step => step.status === status);
+    return index >= 0 ? index : 0;
   };
 
   const currentStatusIndex = getStatusIndex(orderStatus);
+
+  const getItemDetailLines = (item: any): string[] => {
+    const lines: string[] = [];
+
+    if (item.flowers && item.flowers !== '-') {
+      lines.push(`ดอกไม้หลัก: ${item.flowers}`);
+    }
+    if (item.filler_flower_name) {
+      lines.push(`ดอกแซม: ${item.filler_flower_name}`);
+    }
+    if (item.vase_name) {
+      lines.push(`ทรงแจกัน: ${item.vase_name}`);
+    }
+    if (item.wrapping_name) {
+      lines.push(`กระดาษห่อ: ${item.wrapping_name}`);
+    }
+    if (item.ribbon_name || item.ribbon_color_name) {
+      lines.push(`ริบบิ้น: ${[item.ribbon_name, item.ribbon_color_name].filter(Boolean).join(' ')}`);
+    }
+    if (item.card_name) {
+      lines.push(`การ์ด: ${item.card_name}`);
+    }
+    if (item.card_message) {
+      lines.push(`ข้อความการ์ด: "${item.card_message}"`);
+    }
+    if (item.monetary_bouquet_name) {
+      lines.push(`ธนบัตร: ${item.monetary_bouquet_name}`);
+    }
+    if (item.money_amount) {
+      lines.push(`จำนวนเงิน: ฿${Number(item.money_amount).toLocaleString()}`);
+    }
+    if (item.folding_style_name) {
+      lines.push(`วิธีพับ: ${item.folding_style_name}`);
+    }
+
+    if (lines.length === 0) {
+      lines.push('ไม่มีรายละเอียดเพิ่มเติม');
+    }
+
+    return lines;
+  };
 
 
 
@@ -199,21 +253,13 @@ export function OrderTracking({ savedOrders, onBackToHome }: OrderTrackingProps)
                         <p className="text-gray-800 text-sm mb-1">
                           {item.product_type_name} ({item.product_name})
                         </p>
-                        <p className="text-xs text-gray-600">
-                          {item.product_type_name === 'แจกัน' ? (
-                            <>
-                              ดอกไม้ : {item.flowers}
-                              <br />
-                              สี : {item.vase_color_name || 'ไม่ระบุ'}
-                            </>
-                          ) : (
-                            <>
-                              แบบช่อ : {item.bouquet_style_name || 'ไม่ระบุ'}
-                              <br />
-                              ดอกไม้ : {item.flowers}
-                            </>
-                          )}
-                        </p>
+                        <div className="space-y-0.5">
+                          {getItemDetailLines(item).map((line) => (
+                            <p key={`${item.shopping_cart_id}-${line}`} className="text-xs text-gray-600">
+                              {line}
+                            </p>
+                          ))}
+                        </div>
                       </div>
                       <div className="text-gray-900 text-sm">
                         ฿{item.price_total.toLocaleString()}

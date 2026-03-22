@@ -4,11 +4,12 @@ interface HomeProps {
   onNext: () => void;
   onLogin?: () => void;
   onLogout?: () => void;
+  onGoDashboard?: () => void;
   loggedInPhone?: string | null;
   onCheckOrder?: () => void;
 }
 
-export function Home({ onNext, onLogin, onLogout, loggedInPhone, onCheckOrder }: HomeProps) {
+export function Home({ onNext, onLogin, onLogout, onGoDashboard, loggedInPhone, onCheckOrder }: HomeProps) {
 
 
 
@@ -41,6 +42,16 @@ export function Home({ onNext, onLogin, onLogout, loggedInPhone, onCheckOrder }:
             style={{ borderColor: "#AEE6FF" }}
           >
             ตรวจสอบคำสั่งซื้อ
+          </button>
+        )}
+
+        {loggedInPhone && onGoDashboard && (
+          <button
+            onClick={onGoDashboard}
+            className="w-full py-4 rounded-lg border-2 bg-white text-gray-700 transition-all hover:bg-gray-50 mt-3"
+            style={{ borderColor: '#93C5FD' }}
+          >
+            โปรไฟล์
           </button>
         )}
 

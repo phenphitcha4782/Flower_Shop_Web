@@ -30,6 +30,19 @@ export default function CashierLogin({ onLogin }: CashierLoginProps) {
         });
         return;
       }
+
+      // Check if role_id matches cashier role (role_id = 2)
+      if (data.employee.role_id !== 1) {
+        await Swal.fire({
+          icon: 'warning',
+          title: 'บทบาทไม่ตรงกัน',
+          text: 'คุณไม่มีสิทธิ์เข้าสู่ระบบพนักงานขาย',
+          confirmButtonText: 'ตกลง',
+          confirmButtonColor: '#06B6D4',
+        });
+        return;
+      }
+
       // Store employee data in localStorage
       localStorage.setItem('cashier_employee', JSON.stringify(data.employee));
       onLogin();

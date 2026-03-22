@@ -31,14 +31,14 @@ export default function ManagerLogin({ onLogin }: ManagerLoginProps) {
         return;
       }
 
-      // Check if user is a manager (role_id = 2)
-      // Role IDs: 1=admin, 4=manager, 3=florist, 2=cashier, 5=rider, 6=executive
+      // Check if user is a manager (role_id = 1)
+      // Role IDs: 1=manager, 2=cashier, 3=florist, 4=rider
       const MANAGER_ROLE_ID = 4;
       if (data.employee.role_id !== MANAGER_ROLE_ID) {
         await Swal.fire({
           icon: 'error',
           title: 'ไม่มีสิทธิ์เข้าใช้งาน',
-          text: 'คุณไม่มีสิทธิ์เข้าใช้ระบบนี้ (เฉพาะผู้จัดการสาขาเท่านั้น)',
+          text: 'คุณไม่มีสิทธิ์เข้าใช้ระบบนี้',
           confirmButtonText: 'ตกลง',
           confirmButtonColor: '#6366F1',
         });

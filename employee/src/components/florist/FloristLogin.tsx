@@ -30,6 +30,21 @@ export default function FloristLogin({ onLogin }: FloristLoginProps) {
         });
         return;
       }
+
+      // Check if role_id matches florist role (role_id = 3)
+      if (data.employee.role_id !== 2) {
+        await Swal.fire({
+          icon: 'warning',
+          title: 'บทบาทไม่ตรงกัน',
+          text: 'คุณไม่มีสิทธิ์เข้าสู่ระบบพนักงานจัดดอกไม้',
+          confirmButtonText: 'ตกลง',
+          confirmButtonColor: '#14B8A6',
+        });
+        return;
+      }
+
+      // Store employee data in localStorage
+      localStorage.setItem('florist_employee', JSON.stringify(data.employee));
       onLogin();
       navigate('/florist/dashboard');
     } catch (err) {

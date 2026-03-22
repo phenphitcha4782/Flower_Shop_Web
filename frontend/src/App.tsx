@@ -399,6 +399,7 @@ export default function App() {
           onNext={handleProduct}
           onLogin={() => handleOpenLogin('home')}
           onLogout={userPhone ? handleLogout : undefined}
+          onGoDashboard={userPhone ? () => setStep('dashboard') : undefined}
           loggedInPhone={userPhone}
           onCheckOrder={() => setStep('tracking')}
         />
@@ -413,6 +414,7 @@ export default function App() {
         <Dashboard
           userPhone={userPhone ?? undefined}
           onLogout={handleLogout}
+          onBackHome={() => setStep('home')}
           onGoShopping={() => setStep('productType')}
         />
       )}
