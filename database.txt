@@ -1,0 +1,495 @@
+-- ======================
+-- 1. MASTER
+-- ======================
+
+CREATE TABLE gender (
+    gender_id INT AUTO_INCREMENT PRIMARY KEY,
+    gender_name VARCHAR(50)
+);
+
+CREATE TABLE member_level (
+    member_level_id INT AUTO_INCREMENT PRIMARY KEY,
+    member_level_name VARCHAR(100),
+    min_point INT
+);
+
+CREATE TABLE role (
+    role_id INT AUTO_INCREMENT PRIMARY KEY,
+    role_name VARCHAR(100)
+);
+
+CREATE TABLE region (
+    region_id INT AUTO_INCREMENT PRIMARY KEY,
+    region_name VARCHAR(100)
+);
+
+CREATE TABLE province (
+    province_id INT AUTO_INCREMENT PRIMARY KEY,
+    province_name VARCHAR(100),
+    region_id INT,
+    FOREIGN KEY (region_id) REFERENCES region(region_id)
+);
+
+-- ======================
+-- 2. CUSTOMER
+-- ======================
+
+CREATE TABLE customer (
+    customer_id INT AUTO_INCREMENT PRIMARY KEY,
+    customer_name VARCHAR(100),
+    customer_surname VARCHAR(100),
+    gender_id INT,
+    member_level_id INT,
+    email VARCHAR(255),
+    phone VARCHAR(20),
+    total_point INT,
+    date_of_birth DATE,
+    profile_image_url TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (gender_id) REFERENCES gender(gender_id),
+    FOREIGN KEY (member_level_id) REFERENCES member_level(member_level_id)
+);
+
+CREATE TABLE point_transaction (
+    transaction_id INT AUTO_INCREMENT PRIMARY KEY,
+    customer_id INT,
+    order_id INT,
+    type VARCHAR(50),
+    point INT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (customer_id) REFERENCES customer(customer_id),
+    FOREIGN KEY (order_id) REFERENCES orders(order_id)
+);
+
+-- ======================
+-- 3. BRANCH / EMPLOYEE
+-- ======================
+
+CREATE TABLE branch (
+    branch_id INT AUTO_INCREMENT PRIMARY KEY,
+    branch_name VARCHAR(255),
+    province_id INT,
+    branch_address TEXT,
+    latitude DECIMAL(10,6),
+    longitude DECIMAL(10,6),
+    branch_status BOOLEAN,
+    FOREIGN KEY (province_id) REFERENCES province(province_id)
+);
+
+CREATE TABLE employee (
+    employee_id INT AUTO_INCREMENT PRIMARY KEY,
+    average_rating DECIMAL(3,2),
+    employee_profile_url TEXT,
+    username VARCHAR(100),
+    password_hash TEXT,
+    name VARCHAR(100),
+    surname VARCHAR(100),
+    salary DECIMAL(10,2),
+    phone VARCHAR(20),
+    role_id INT,
+    branch_id INT,
+    FOREIGN KEY (role_id) REFERENCES role(role_id),
+    FOREIGN KEY (branch_id) REFERENCES branch(branch_id)
+);
+
+CREATE TABLE executive (
+    executive_id INT AUTO_INCREMENT PRIMARY KEY,
+    username VARCHAR(100),
+    password_hash TEXT,
+    name VARCHAR(100),
+    surname VARCHAR(100),
+    phone VARCHAR(20)
+);
+
+-- ======================
+-- 4. PRODUCT
+-- ======================
+
+CREATE TABLE product_type (
+    product_type_id INT AUTO_INCREMENT PRIMARY KEY,
+    product_type_name VARCHAR(100)
+);
+
+CREATE TABLE product (
+    product_id INT AUTO_INCREMENT PRIMARY KEY,
+    product_type_id INT,
+    product_name VARCHAR(255),
+    product_price DECIMAL(10,2),
+    product_img TEXT,
+    is_active BOOLEAN,
+    FOREIGN KEY (product_type_id) REFERENCES product_type(product_type_id)
+);
+
+CREATE TABLE branch_product_container (
+    branch_product_container_id INT AUTO_INCREMENT PRIMARY KEY,
+    branch_id INT,
+    product_id INT,
+    product_stock_qty INT,
+    is_active BOOLEAN,
+    FOREIGN KEY (branch_id) REFERENCES branch(branch_id),
+    FOREIGN KEY (product_id) REFERENCES product(product_id)
+);
+
+-- ======================
+-- 5. FLOWER SYSTEM
+-- ======================
+
+CREATE TABLE flower (
+    flower_id INT AUTO_INCREMENT PRIMARY KEY,
+    flower_img TEXT,
+    flower_price DECIMAL(10,2)
+);
+
+CREATE TABLE filler_flower (
+    filler_flower_id INT AUTO_INCREMENT PRIMARY KEY,
+    filler_flower_name VARCHAR(100),
+    filler_flower_img TEXT
+);
+
+CREATE TABLE vase (
+    vase_id INT AUTO_INCREMENT PRIMARY KEY,
+    vase_name VARCHAR(100),
+    vase_img TEXT,
+    vase_price DECIMAL(10,2)
+);
+
+-- ======================
+-- 6. CART & DETAIL
+-- ======================
+
+CREATE TABLE orders (
+    order_id INT AUTO_INCREMENT PRIMARY KEY,
+    branch_id INT,
+    customer_id INT,
+    promotion_id INT,
+    order_code VARCHAR(50),
+    order_status VARCHAR(50),
+    total_amount DECIMAL(10,2),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (branch_id) REFERENCES branch(branch_id),
+    FOREIGN KEY (promotion_id) REFERENCES promotion(promotion_id),
+    FOREIGN KEY (customer_id) REFERENCES customer(customer_id)
+);
+
+CREATE TABLE order_address(
+	order_address_id INT AUTO_INCREMENT PRIMARY KEY,
+    order_id INT,
+    receiver_name VARCHAR(100),
+    receiver_phone VARCHAR(20),
+    receiver_address VARCHAR(100),
+    FOREIGN KEY (order_id) REFERENCES orders(order_id)
+);
+
+CREATE TABLE shopping_cart (
+    shopping_cart_id INT AUTO_INCREMENT PRIMARY KEY,
+    order_id INT,
+    product_id INT,
+    total_price DECIMAL(10,2),
+    FOREIGN KEY (order_id) REFERENCES orders(order_id),
+    FOREIGN KEY (product_id) REFERENCES product(product_id)
+);
+
+CREATE TABLE flower_detail (
+    shopping_cart_id INT,
+    flower_id INT,
+    quantity INT,
+    PRIMARY KEY (shopping_cart_id, flower_id),
+    FOREIGN KEY (shopping_cart_id) REFERENCES shopping_cart(shopping_cart_id),
+    FOREIGN KEY (flower_id) REFERENCES flower(flower_id)
+);
+
+CREATE TABLE filler_flower_detail (
+    shopping_cart_id INT,
+    filler_flower_id INT,
+    PRIMARY KEY (shopping_cart_id, filler_flower_id),
+    FOREIGN KEY (shopping_cart_id) REFERENCES shopping_cart(shopping_cart_id),
+    FOREIGN KEY (filler_flower_id) REFERENCES filler_flower(filler_flower_id)
+);
+
+CREATE TABLE vase_customization (
+    shopping_cart_id INT,
+    vase_id INT,
+    PRIMARY KEY (shopping_cart_id, vase_id),
+    FOREIGN KEY (shopping_cart_id) REFERENCES shopping_cart(shopping_cart_id),
+    FOREIGN KEY (vase_id) REFERENCES vase(vase_id)
+);
+
+-- ======================
+-- 7. RIBBON / WRAP / CARD / folding
+-- ======================
+
+CREATE TABLE ribbon (
+    ribbon_id INT AUTO_INCREMENT PRIMARY KEY,
+    ribbon_name VARCHAR(100),
+    ribbon_img TEXT
+);
+
+CREATE TABLE ribbon_color (
+    ribbon_color_id INT AUTO_INCREMENT PRIMARY KEY,
+    ribbon_color_name VARCHAR(100),
+    hex VARCHAR(10)
+);
+
+CREATE TABLE ribbon_detail (
+    shopping_cart_id INT,
+    ribbon_id INT,
+    ribbon_color_id INT,
+    PRIMARY KEY (shopping_cart_id, ribbon_id),
+    FOREIGN KEY (shopping_cart_id) REFERENCES shopping_cart(shopping_cart_id),
+    FOREIGN KEY (ribbon_id) REFERENCES ribbon(ribbon_id),
+    FOREIGN KEY (ribbon_color_id) REFERENCES ribbon_color(ribbon_color_id)
+);
+
+CREATE TABLE wrapping_material_type (
+    wrapping_type_id INT AUTO_INCREMENT PRIMARY KEY,
+    wrapping_type_name VARCHAR(100)
+);
+
+CREATE TABLE wrapping_material (
+    wrapping_id INT AUTO_INCREMENT PRIMARY KEY,
+    wrapping_type_id INT,
+    wrapping_name VARCHAR(100),
+    wrapping_img TEXT,
+    wrapping_price DECIMAL(10,2),
+    FOREIGN KEY (wrapping_type_id) REFERENCES wrapping_material_type(wrapping_type_id)
+);
+
+CREATE TABLE wrapping_detail (
+    shopping_cart_id INT,
+    wrapping_id INT,
+    PRIMARY KEY (shopping_cart_id, wrapping_id),
+    FOREIGN KEY (shopping_cart_id) REFERENCES shopping_cart(shopping_cart_id),
+    FOREIGN KEY (wrapping_id) REFERENCES wrapping_material(wrapping_id)
+);
+
+CREATE TABLE card (
+    card_id INT AUTO_INCREMENT PRIMARY KEY,
+    card_name VARCHAR(100),
+    card_img TEXT,
+    card_price DECIMAL(10,2)
+);
+
+CREATE TABLE card_detail (
+    shopping_cart_id INT,
+    card_id INT,
+    message TEXT,
+    PRIMARY KEY (shopping_cart_id, card_id),
+    FOREIGN KEY (shopping_cart_id) REFERENCES shopping_cart(shopping_cart_id),
+    FOREIGN KEY (card_id) REFERENCES card(card_id)
+);
+
+CREATE TABLE folding_style (
+    folding_style_id INT AUTO_INCREMENT PRIMARY KEY,
+    folding_style_name VARCHAR(100),
+    folding_style_img TEXT,
+    folding_style_price DECIMAL(10,2)
+);
+
+CREATE TABLE monetary_bouquet (
+    monetary_bouquet_id INT AUTO_INCREMENT PRIMARY KEY,
+    monetary_bouquet_name VARCHAR(100)
+);
+
+CREATE TABLE monetary_bouquet_detail (
+    shopping_cart_id INT,
+    monetary_bouquet_id INT,
+    folding_style_id INT,
+    amount INT,
+    PRIMARY KEY (shopping_cart_id),
+    FOREIGN KEY (shopping_cart_id) REFERENCES shopping_cart(shopping_cart_id),
+    FOREIGN KEY (monetary_bouquet_id) REFERENCES monetary_bouquet(monetary_bouquet_id),
+    FOREIGN KEY (folding_style_id) REFERENCES folding_style(folding_style_id)
+);
+
+-- ======================
+-- 8. STOCK
+-- ======================
+
+CREATE TABLE branch_flower_container (
+    branch_flower_container_id INT AUTO_INCREMENT PRIMARY KEY,
+    branch_id INT,
+    flower_id INT,
+    flower_stock_qty INT,
+    received_date DATE,
+    expiry_date DATE,
+    is_active BOOLEAN,
+    FOREIGN KEY (branch_id) REFERENCES branch(branch_id),
+    FOREIGN KEY (flower_id) REFERENCES flower(flower_id)
+);
+
+CREATE TABLE branch_filler_container (
+    branch_filler_container_id INT AUTO_INCREMENT PRIMARY KEY,
+    branch_id INT,
+    filler_flower_id INT,
+    filler_flower_stock_qty INT,
+    received_date DATE,
+    expiry_date DATE,
+    is_active BOOLEAN,
+    FOREIGN KEY (branch_id) REFERENCES branch(branch_id),
+    FOREIGN KEY (filler_flower_id) REFERENCES filler_flower(filler_flower_id)
+);
+
+CREATE TABLE branch_ribbon_container (
+    branch_ribbon_container_id INT AUTO_INCREMENT PRIMARY KEY,
+    branch_id INT,
+    ribbon_id INT,
+    ribbon_color_id INT,
+    ribbon_stock_qty INT,
+    is_active BOOLEAN,
+    FOREIGN KEY (branch_id) REFERENCES branch(branch_id),
+    FOREIGN KEY (ribbon_id) REFERENCES ribbon(ribbon_id),
+    FOREIGN KEY (ribbon_color_id) REFERENCES ribbon_color(ribbon_color_id)
+);
+
+CREATE TABLE branch_wrapping_container (
+    branch_wrapping_container_id INT AUTO_INCREMENT PRIMARY KEY,
+    branch_id INT,
+    wrapping_id INT,
+    wrapping_stock_qty INT,
+    is_active BOOLEAN,
+    FOREIGN KEY (branch_id) REFERENCES branch(branch_id),
+    FOREIGN KEY (wrapping_id) REFERENCES wrapping_material(wrapping_id)
+);
+
+CREATE TABLE branch_card_container (
+    branch_card_container_id INT AUTO_INCREMENT PRIMARY KEY,
+    branch_id INT,
+    card_id INT,
+    card_stock_qty INT,
+    is_active BOOLEAN,
+    FOREIGN KEY (branch_id) REFERENCES branch(branch_id),
+    FOREIGN KEY (card_id) REFERENCES card(card_id)
+);
+
+-- ======================
+-- 9. PAYMENT
+-- ======================
+
+CREATE TABLE payment_method (
+    payment_method_id INT AUTO_INCREMENT PRIMARY KEY,
+    payment_method_name VARCHAR(100),
+    is_active BOOLEAN
+);
+
+CREATE TABLE payment (
+    payment_id INT AUTO_INCREMENT PRIMARY KEY,
+    payment_method_id INT,
+    order_id INT,
+    employee_id INT,
+    verified_at TIMESTAMP,
+    verified_result VARCHAR(50),
+    FOREIGN KEY (payment_method_id) REFERENCES payment_method(payment_method_id),
+    FOREIGN KEY (order_id) REFERENCES orders(order_id),
+    FOREIGN KEY (employee_id) REFERENCES employee(employee_id)
+);
+
+CREATE TABLE payment_card_evidence (
+    payment_id INT,
+    trans_ref VARCHAR(100),
+    card_last4 VARCHAR(10),
+    card_brand VARCHAR(50),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (payment_id) REFERENCES payment(payment_id)
+);
+
+-- ======================
+-- 10. WORKFLOW
+-- ======================
+
+CREATE TABLE prepare (
+    prepare_id INT AUTO_INCREMENT PRIMARY KEY,
+    order_id INT,
+    employee_id INT,
+    florist_photo_url TEXT,
+    prepare_status VARCHAR(50),
+    assigned_at TIMESTAMP,
+    completed_at TIMESTAMP,
+    FOREIGN KEY (order_id) REFERENCES orders(order_id),
+    FOREIGN KEY (employee_id) REFERENCES employee(employee_id)
+);
+
+CREATE TABLE delivery (
+    delivery_id INT AUTO_INCREMENT PRIMARY KEY,
+    order_id INT,
+    employee_id INT,
+    rider_photo_url TEXT,
+    delivery_status VARCHAR(50),
+    assigned_at TIMESTAMP,
+    completed_at TIMESTAMP,
+    FOREIGN KEY (order_id) REFERENCES orders(order_id),
+    FOREIGN KEY (employee_id) REFERENCES employee(employee_id)
+);
+
+-- ======================
+-- 11. REVIEW
+-- ======================
+
+CREATE TABLE order_review (
+    review_id INT AUTO_INCREMENT PRIMARY KEY,
+    order_id INT,
+    rating_rider INT,
+    rating_product INT,
+    comment TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (order_id) REFERENCES orders(order_id)
+);
+
+-- ======================
+-- 12. PROMOTION
+-- ======================
+
+CREATE TABLE promotion_type (
+    promotion_type_id INT AUTO_INCREMENT PRIMARY KEY,
+    promotion_type_name VARCHAR(100)
+);
+
+CREATE TABLE promotion (
+    promotion_id INT AUTO_INCREMENT PRIMARY KEY,
+    promotion_type_id INT,
+    promotion_name VARCHAR(255),
+    promotion_code VARCHAR(100),
+    usage_limit INT,
+    per_user_limit INT,
+    description TEXT,
+    discount DECIMAL(10,2),
+    max_discount DECIMAL(10,2),
+    minimum_order_amount DECIMAL(10,2),
+    start_date DATE,
+    end_date DATE,
+    is_allbranch BOOLEAN,
+    is_allflower BOOLEAN,
+    is_active BOOLEAN,
+    FOREIGN KEY (promotion_type_id) REFERENCES promotion_type(promotion_type_id)
+);
+CREATE TABLE channel (
+    channel_id INT AUTO_INCREMENT PRIMARY KEY,
+    channel_name VARCHAR(100)
+);
+CREATE TABLE promotion_channel (
+    promotion_channel_id INT AUTO_INCREMENT PRIMARY KEY,
+    promotion_id INT,
+    channel_id INT,
+    FOREIGN KEY (promotion_id) REFERENCES promotion(promotion_id),
+    FOREIGN KEY (channel_id) REFERENCES channel(channel_id)
+);
+CREATE TABLE promotion_member_level (
+    promotion_member_id INT AUTO_INCREMENT PRIMARY KEY,
+    promotion_id INT,
+    member_level_id INT,
+    FOREIGN KEY (promotion_id) REFERENCES promotion(promotion_id),
+    FOREIGN KEY (member_level_id) REFERENCES member_level(member_level_id)
+);
+CREATE TABLE promotion_branch (
+    promotion_branch_id INT AUTO_INCREMENT PRIMARY KEY,
+    promotion_id INT,
+    branch_id INT,
+    FOREIGN KEY (promotion_id) REFERENCES promotion(promotion_id),
+    FOREIGN KEY (branch_id) REFERENCES branch(branch_id)
+);
+CREATE TABLE promotion_flower (
+    promotion_flower_id INT AUTO_INCREMENT PRIMARY KEY,
+    promotion_id INT,
+    flower_id INT,
+    FOREIGN KEY (promotion_id) REFERENCES promotion(promotion_id),
+    FOREIGN KEY (flower_id) REFERENCES flower(flower_id)
+);

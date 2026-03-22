@@ -33,6 +33,16 @@ const pool = mysql.createPool({
   namedPlaceholders: true
 });
 
+const getExistingTableName = async (candidateNames) => {
+  for (const tableName of candidateNames) {
+    const [rows] = await pool.query('SHOW TABLES LIKE ?', [tableName]);
+    if (Array.isArray(rows) && rows.length > 0) {
+      return tableName;
+    }
+  }
+  return null;
+};
+
 
 app.get("/api/regions", async (_req, res) => {
   try {
@@ -92,6 +102,25 @@ app.get('/api/vases', async (req, res) => {
   }
 });
 
+// Vase shapes by selected vase material product_id
+app.get('/api/vase-shapes', async (req, res) => {
+  try {
+    const productId = Number(req.query.product_id);
+    if (Number.isNaN(productId) || productId <= 0) {
+      return res.status(400).json({ error: 'product_id is required' });
+    }
+
+    const [rows] = await pool.query(
+      'SELECT vase_id, product_id, vase_name, vase_img, vase_price FROM vase WHERE product_id = ? ORDER BY vase_name',
+      [productId]
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error('❌ Vase Shapes API Error:', err.message);
+    res.status(500).json({ error: 'Failed to load vase shapes', detail: err.message });
+  }
+});
+
 // Vase colors
 app.get('/api/vase-colors', async (_req, res) => {
   try {
@@ -103,10 +132,44 @@ app.get('/api/vase-colors', async (_req, res) => {
   }
 });
 
-// Flower types
+// Main flowers (from flower table)
+app.get('/api/main-flowers', async (_req, res) => {
+  try {
+    const [nameCols] = await pool.query("SHOW COLUMNS FROM flower LIKE 'flower_name'");
+    let rows;
+    if (Array.isArray(nameCols) && nameCols.length > 0) {
+      [rows] = await pool.query('SELECT flower_id, flower_name, flower_price FROM flower ORDER BY flower_name');
+    } else {
+      [rows] = await pool.query("SELECT flower_id, CONCAT('ดอกหลัก #', flower_id) AS flower_name, flower_price FROM flower ORDER BY flower_id");
+    }
+    res.json(rows);
+  } catch (err) {
+    console.error('❌ Main Flowers API Error:', err.message);
+    res.status(500).json({ error: 'Failed to load main flowers', detail: err.message });
+  }
+});
+
+// Filler flowers (from filler_flower table)
+app.get('/api/filler-flowers', async (_req, res) => {
+  try {
+    const [rows] = await pool.query('SELECT filler_flower_id AS flower_id, filler_flower_name AS flower_name FROM filler_flower ORDER BY filler_flower_name');
+    res.json(rows);
+  } catch (err) {
+    console.error('❌ Filler Flowers API Error:', err.message);
+    res.status(500).json({ error: 'Failed to load filler flowers', detail: err.message });
+  }
+});
+
+// Backward-compatible alias used by old frontend code
 app.get('/api/flower-types', async (_req, res) => {
   try {
-    const [rows] = await pool.query('SELECT flower_type_id AS flower_id, flower_name FROM flower_type ORDER BY flower_name');
+    const [nameCols] = await pool.query("SHOW COLUMNS FROM flower LIKE 'flower_name'");
+    let rows;
+    if (Array.isArray(nameCols) && nameCols.length > 0) {
+      [rows] = await pool.query('SELECT flower_id, flower_name, flower_price FROM flower ORDER BY flower_name');
+    } else {
+      [rows] = await pool.query("SELECT flower_id, CONCAT('ดอกหลัก #', flower_id) AS flower_name, flower_price FROM flower ORDER BY flower_id");
+    }
     res.json(rows);
   } catch (err) {
     console.error('❌ Flower Types API Error:', err.message);
@@ -125,6 +188,19 @@ app.get('/api/bouquet-styles', async (_req, res) => {
   }
 });
 
+// Cards
+app.get('/api/cards', async (_req, res) => {
+  try {
+    const [rows] = await pool.query(
+      'SELECT card_id, card_name, card_img, card_price FROM card ORDER BY card_name'
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error('❌ Cards API Error:', err.message);
+    res.status(500).json({ error: 'Failed to load cards', detail: err.message });
+  }
+});
+
 // Product types
 app.get('/api/product-types', async (_req, res) => {
   try {
@@ -133,6 +209,153 @@ app.get('/api/product-types', async (_req, res) => {
   } catch (err) {
     console.error('❌ Product Types API Error:', err.message);
     res.status(500).json({ error: 'Failed to load product types', detail: err.message });
+  }
+});
+
+app.get('/api/wrapping-types', async (_req, res) => {
+  try {
+    const typeTable = await getExistingTableName(['wrapping_material_type', 'wrapping_type']);
+    if (!typeTable) {
+      return res.status(404).json({ error: 'Wrapping type table not found' });
+    }
+
+    const [rows] = await pool.query(
+      `
+      SELECT
+        wrapping_type_id,
+        wrapping_type_name
+      FROM ${typeTable}
+      ORDER BY wrapping_type_name
+      `
+    );
+
+    res.json(rows);
+  } catch (err) {
+    console.error('❌ Wrapping Types API Error:', err.message);
+    res.status(500).json({ error: 'Failed to load wrapping types', detail: err.message });
+  }
+});
+
+app.get('/api/wrappings', async (req, res) => {
+  try {
+    const wrappingTypeId = Number(req.query.wrapping_type_id);
+    if (Number.isNaN(wrappingTypeId) || wrappingTypeId <= 0) {
+      return res.status(400).json({ error: 'wrapping_type_id is required' });
+    }
+
+    const wrappingTable = await getExistingTableName(['wrapping_material', 'wrapping']);
+    if (!wrappingTable) {
+      return res.status(404).json({ error: 'Wrapping material table not found' });
+    }
+
+    const [rows] = await pool.query(
+      `
+      SELECT
+        wrapping_id,
+        wrapping_type_id,
+        wrapping_name,
+        wrapping_img,
+        wrapping_price
+      FROM ${wrappingTable}
+      WHERE wrapping_type_id = ?
+      ORDER BY wrapping_name
+      `,
+      [wrappingTypeId]
+    );
+
+    res.json(rows);
+  } catch (err) {
+    console.error('❌ Wrapping Materials API Error:', err.message);
+    res.status(500).json({ error: 'Failed to load wrapping materials', detail: err.message });
+  }
+});
+
+app.get('/api/ribbons', async (_req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `
+      SELECT
+        ribbon_id,
+        ribbon_name,
+        ribbon_img
+      FROM ribbon
+      ORDER BY ribbon_name
+      `
+    );
+
+    res.json(rows);
+  } catch (err) {
+    console.error('❌ Ribbons API Error:', err.message);
+    res.status(500).json({ error: 'Failed to load ribbons', detail: err.message });
+  }
+});
+
+app.get('/api/ribbon-colors', async (req, res) => {
+  try {
+    const ribbonId = Number(req.query.ribbon_id);
+    if (Number.isNaN(ribbonId) || ribbonId <= 0) {
+      return res.status(400).json({ error: 'ribbon_id is required' });
+    }
+
+    const [rows] = await pool.query(
+      `
+      SELECT
+        ribbon_color_id,
+        ribbon_id,
+        ribbon_color_name,
+        hex
+      FROM ribbon_color
+      WHERE ribbon_id = ?
+      ORDER BY ribbon_color_name
+      `,
+      [ribbonId]
+    );
+
+    res.json(rows);
+  } catch (err) {
+    console.error('❌ Ribbon Colors API Error:', err.message);
+    res.status(500).json({ error: 'Failed to load ribbon colors', detail: err.message });
+  }
+});
+
+app.get('/api/monetary-bouquets', async (_req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `
+      SELECT
+        monetary_bouquet_id,
+        monetary_bouquet_name,
+        monetary_value
+      FROM monetary_bouquet
+      ORDER BY monetary_bouquet_id
+      `
+    );
+
+    res.json(rows);
+  } catch (err) {
+    console.error('❌ Monetary Bouquets API Error:', err.message);
+    res.status(500).json({ error: 'Failed to load monetary bouquets', detail: err.message });
+  }
+});
+
+app.get('/api/folding-styles', async (_req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `
+      SELECT
+        folding_style_id,
+        folding_style_name,
+        folding_style_img,
+        folding_style_price
+      FROM folding_style
+      ORDER BY folding_style_id
+      `
+    );
+
+    res.json(rows);
+  } catch (err) {
+    console.error('❌ Folding Styles API Error:', err.message);
+    res.status(500).json({ error: 'Failed to load folding styles', detail: err.message });
   }
 });
 
@@ -145,7 +368,7 @@ app.get('/api/customers/points', async (req, res) => {
 
     const [rows] = await pool.query(
       `
-      SELECT points
+      SELECT total_point
       FROM customer
       WHERE REPLACE(REPLACE(REPLACE(phone, '-', ''), ' ', ''), '+', '') = ?
       ORDER BY customer_id DESC
@@ -154,7 +377,7 @@ app.get('/api/customers/points', async (req, res) => {
       [normalizedPhone]
     );
 
-    const points = rows.length ? Number(rows[0].points || 0) : 0;
+    const points = rows.length ? Number(rows[0].total_point || 0) : 0;
     res.json({
       phone: normalizedPhone,
       points: Number.isFinite(points) ? Math.max(0, Math.floor(points)) : 0,
@@ -165,6 +388,226 @@ app.get('/api/customers/points', async (req, res) => {
   }
 });
 
+app.get('/api/customers/profile', async (req, res) => {
+  try {
+    const normalizedPhone = String(req.query.phone || '').replace(/\D/g, '');
+    if (!normalizedPhone) {
+      return res.status(400).json({ error: 'phone is required' });
+    }
+
+    const [rows] = await pool.query(
+      `
+      SELECT
+        c.customer_id,
+        c.customer_name,
+        c.customer_surname,
+        c.phone,
+        c.total_point,
+        c.member_level_id,
+        ml.member_level_name
+      FROM customer c
+      LEFT JOIN member_level ml ON ml.member_level_id = c.member_level_id
+      WHERE REPLACE(REPLACE(REPLACE(c.phone, '-', ''), ' ', ''), '+', '') = ?
+      ORDER BY c.customer_id DESC
+      LIMIT 1
+      `,
+      [normalizedPhone]
+    );
+
+    let customerRow = rows[0] || null;
+
+    if (!customerRow) {
+      const [insertResult] = await pool.query(
+        `
+        INSERT INTO customer (
+          customer_name,
+          customer_surname,
+          gender_id,
+          member_level_id,
+          phone,
+          total_point
+        ) VALUES (?, ?, ?, ?, ?, ?)
+        `,
+        ['-', '-', null, 1, normalizedPhone, 0]
+      );
+
+      const insertedId = insertResult.insertId;
+      const [insertedRows] = await pool.query(
+        `
+        SELECT
+          c.customer_id,
+          c.customer_name,
+          c.customer_surname,
+          c.phone,
+          c.total_point,
+          c.member_level_id,
+          ml.member_level_name
+        FROM customer c
+        LEFT JOIN member_level ml ON ml.member_level_id = c.member_level_id
+        WHERE c.customer_id = ?
+        LIMIT 1
+        `,
+        [insertedId]
+      );
+
+      customerRow = insertedRows[0] || {
+        customer_id: insertedId,
+        customer_name: '-',
+        customer_surname: '-',
+        phone: normalizedPhone,
+        total_point: 0,
+        member_level_id: 1,
+        member_level_name: null,
+      };
+    }
+
+    const points = Number(customerRow.total_point || 0);
+
+    return res.json({
+      customer_id: customerRow.customer_id,
+      customer_name: customerRow.customer_name || '-',
+      customer_surname: customerRow.customer_surname || '-',
+      phone: normalizedPhone,
+      points: Number.isFinite(points) ? Math.max(0, Math.floor(points)) : 0,
+      member_level_id: Number(customerRow.member_level_id || 1),
+      member_level_name: customerRow.member_level_name || `ระดับ ${Number(customerRow.member_level_id || 1)}`,
+    });
+  } catch (err) {
+    console.error('❌ Customer Profile API Error:', err.message);
+    return res.status(500).json({ error: 'Failed to load customer profile', detail: err.message });
+  }
+});
+
+// Get active promotions with member levels and promotion type
+app.get('/api/promotions', async (_req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `
+      SELECT
+        p.promotion_id,
+        p.promotion_name,
+        p.promotion_code,
+        p.discount,
+        p.max_discount,
+        p.minimum_order_amount,
+        p.description,
+        p.usage_limit,
+        p.per_user_limit,
+        p.start_date,
+        p.end_date,
+        p.is_active,
+        p.promotion_type_id,
+        pt.promotion_type_name,
+        GROUP_CONCAT(DISTINCT pml.member_level_id ORDER BY pml.member_level_id) as member_level_ids,
+        GROUP_CONCAT(DISTINCT ml.member_level_name ORDER BY pml.member_level_id SEPARATOR '|') as member_level_names
+      FROM promotion p
+      LEFT JOIN promotion_type pt ON p.promotion_type_id = pt.promotion_type_id
+      LEFT JOIN promotion_member_level pml ON p.promotion_id = pml.promotion_id
+      LEFT JOIN member_level ml ON pml.member_level_id = ml.member_level_id
+      WHERE p.is_active = 1
+      AND (p.start_date IS NULL OR p.start_date <= CURDATE())
+      AND (p.end_date IS NULL OR p.end_date >= CURDATE())
+      GROUP BY p.promotion_id
+      ORDER BY p.start_date DESC, p.promotion_id DESC
+      `
+    );
+
+    console.log('✅ Fetched promotions from DB:', rows.length, 'records');
+
+    const promotions = rows.map((row) => {
+      let benefitType = 'amount';
+      const discount = Number(row.discount || 0);
+      
+      // Determine benefit type based on discount value
+      if (discount > 0 && discount <= 100) {
+        benefitType = 'percent';
+      } else if (discount > 100) {
+        benefitType = 'amount';
+      }
+
+      // Check if it's a shipping promo (can also check promotion_type_name)
+      const description = String(row.description || '').toLowerCase();
+      const name = String(row.promotion_name || '').toLowerCase();
+      const typeName = String(row.promotion_type_name || '').toLowerCase();
+      if (description.includes('ฟรี') || name.includes('ฟรี') || 
+          description.includes('shipping') || name.includes('shipping') ||
+          typeName.includes('ส่วนลดจัดส่ง')) {
+        benefitType = 'shipping';
+      }
+
+      // Parse member levels (comma-separated string from GROUP_CONCAT)
+      const memberLevelIds = row.member_level_ids 
+        ? row.member_level_ids.split(',').map(id => parseInt(id, 10))
+        : [];
+      const memberLevelNames = row.member_level_names
+        ? row.member_level_names.split('|').filter(Boolean)
+        : [];
+
+      return {
+        promotion_id: row.promotion_id,
+        code: row.promotion_code,
+        label: row.promotion_name,
+        benefitType,
+        benefitValue: discount,
+        maxDiscount: row.max_discount ? Number(row.max_discount) : undefined,
+        minSubtotal: row.minimum_order_amount ? Number(row.minimum_order_amount) : 0,
+        description: row.description || '',
+        usageLimit: row.usage_limit,
+        perUserLimit: row.per_user_limit,
+        startDate: row.start_date,
+        endDate: row.end_date,
+        promotionTypeId: row.promotion_type_id,
+        promotionTypeName: row.promotion_type_name || '',
+        memberLevelIds: memberLevelIds,
+        memberLevelNames: memberLevelNames,
+      };
+    });
+
+    res.json(promotions);
+  } catch (err) {
+    console.error('❌ Promotions API Error:', err.message);
+    res.status(500).json({ 
+      error: 'Failed to load promotions',
+      detail: err.message 
+    });
+  }
+});
+
+// Debug endpoint to check all promotions (including inactive)
+app.get('/api/promotions/debug/all', async (_req, res) => {
+  try {
+    const [rows] = await pool.query('SELECT * FROM promotion LIMIT 10');
+    console.log('👀 All promotions (debug):', rows);
+    res.json(rows);
+  } catch (err) {
+    console.error('❌ Debug Promotions Error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Test endpoint with hardcoded promotions
+app.get('/api/promotions/test', async (_req, res) => {
+  res.json([
+    {
+      promotion_id: 999,
+      code: 'TEST50',
+      label: 'สินค้าทดสอบ',
+      benefitType: 'amount',
+      benefitValue: 50,
+      maxDiscount: 50,
+      minSubtotal: 100,
+      description: 'โปรโมชั่นทดสอบ',
+      usageLimit: 10,
+      perUserLimit: 1,
+      startDate: '2024-01-01',
+      endDate: '2026-12-31',
+      promotionTypeId: 2,
+      promotionTypeName: 'ส่วนลดราคา',
+      memberLevelIds: [1, 2, 3, 4]
+    }
+  ]);
+});
+
 // Create order (transactional)
 app.post('/api/orders', async (req, res) => {
   const payload = req.body || {};
@@ -172,12 +615,50 @@ app.post('/api/orders', async (req, res) => {
   try {
     await conn.beginTransaction();
 
+    const resolveOrderStatus = async () => {
+      const [rows] = await conn.query("SHOW COLUMNS FROM orders LIKE 'order_status'");
+      const orderStatusType = rows?.[0]?.Type || '';
+      const enumMatch = orderStatusType.match(/^enum\((.*)\)$/i);
+      if (enumMatch && enumMatch[1]) {
+        const allowedValues = enumMatch[1]
+          .split(',')
+          .map((v) => v.trim().replace(/^'/, '').replace(/'$/, ''));
+        if (allowedValues.includes('waiting')) return 'waiting';
+        if (allowedValues.includes('received')) return 'received';
+      }
+      return 'waiting';
+    };
+
+    const resolvePaymentMethodId = async (method) => {
+      const normalized = String(method || '').trim().toLowerCase();
+      const candidatesByMethod = {
+        cash: ['Cash'],
+        qr: ['Online Payment', 'QR Payment', 'Online'],
+        credit: ['Credit Card'],
+      };
+
+      const candidates = candidatesByMethod[normalized] || ['Online Payment'];
+      for (const methodName of candidates) {
+        const [rows] = await conn.query(
+          'SELECT payment_method_id FROM payment_method WHERE payment_method_name = ? AND is_active = 1 LIMIT 1',
+          [methodName]
+        );
+        if (Array.isArray(rows) && rows.length > 0) {
+          return Number(rows[0].payment_method_id);
+        }
+      }
+
+      if (normalized === 'cash') return 1;
+      if (normalized === 'credit') return 3;
+      return 2;
+    };
+
     // Generate unique order code ORD########
     const genOrderCode = async () => {
       while (true) {
         const n = Math.floor(10000000 + Math.random() * 90000000);
         const code = `ORD${n}`;
-        const [r] = await conn.query('SELECT 1 FROM `order` WHERE order_code = ?', [code]);
+        const [r] = await conn.query('SELECT 1 FROM orders WHERE order_code = ?', [code]);
         if (r.length === 0) return code;
       }
     };
@@ -190,73 +671,237 @@ app.post('/api/orders', async (req, res) => {
       if (brows.length) branchId = brows[0].branch_id;
     }
 
+    const resolvePromotionId = async () => {
+      const directPromotionId = Number(payload.promotion_id);
+      if (Number.isInteger(directPromotionId) && directPromotionId > 0) {
+        return directPromotionId;
+      }
+
+      const promotionCode = String(payload.promotion_code || '').trim();
+      if (!promotionCode) {
+        return null;
+      }
+
+      const [rows] = await conn.query(
+        'SELECT promotion_id FROM promotion WHERE UPPER(TRIM(promotion_code)) = UPPER(TRIM(?)) LIMIT 1',
+        [promotionCode]
+      );
+      if (Array.isArray(rows) && rows.length > 0) {
+        return Number(rows[0].promotion_id);
+      }
+
+      return null;
+    };
+
     // Insert or find customer by phone
     const customer = payload.customer || {};
+    const receiver = payload.receiver || {};
+    const normalizeDisplayName = (value) => String(value || '').trim();
+    const splitFullName = (fullNameRaw) => {
+      const fullName = normalizeDisplayName(fullNameRaw);
+      if (!fullName) {
+        return { firstName: null, surname: null };
+      }
+      const parts = fullName.split(/\s+/).filter(Boolean);
+      if (parts.length === 1) {
+        return { firstName: parts[0], surname: '-' };
+      }
+      return {
+        firstName: parts[0],
+        surname: parts.slice(1).join(' '),
+      };
+    };
+
     let customerId = null;
     if (customer.phone) {
-      const [found] = await conn.query('SELECT customer_id FROM customer WHERE phone = ? LIMIT 1', [customer.phone]);
-      if (found.length > 0) customerId = found[0].customer_id;
+      const [found] = await conn.query(
+        'SELECT customer_id, customer_name, customer_surname FROM customer WHERE phone = ? LIMIT 1',
+        [customer.phone]
+      );
+      if (found.length > 0) {
+        customerId = found[0].customer_id;
+
+        const existingName = normalizeDisplayName(found[0].customer_name);
+        if (!existingName || existingName === '-') {
+          const sourceName = normalizeDisplayName(receiver.name) || normalizeDisplayName(customer.name);
+          const { firstName, surname } = splitFullName(sourceName);
+          if (firstName) {
+            await conn.query(
+              'UPDATE customer SET customer_name = ?, customer_surname = ? WHERE customer_id = ?',
+              [firstName, surname || '-', customerId]
+            );
+          }
+        }
+      }
     }
     if (!customerId) {
-      const [insCust] = await conn.query('INSERT INTO customer (customer_name, phone, points) VALUES (?, ?, ?)', [customer.name || null, customer.phone || null, (payload.total_amount/100)]);
+      const sourceName = normalizeDisplayName(receiver.name) || normalizeDisplayName(customer.name);
+      const { firstName, surname } = splitFullName(sourceName);
+      const [insCust] = await conn.query(
+        'INSERT INTO customer (customer_name, customer_surname, phone, total_point) VALUES (?, ?, ?, ?)',
+        [firstName || null, surname || null, customer.phone || null, Math.max(0, Math.floor(Number(payload.total_amount || 0) / 100))]
+      );
       customerId = insCust.insertId;
     }
 
-    // province for address
-    // let provinceId = null;
-    // if (payload.receiver && payload.receiver.province_id) provinceId = payload.receiver.province_id;
-    // else {
-       const [p] = await conn.query('SELECT province_id FROM province WHERE province_id = ?', [payload.branch_id]);
-       provinceId = p.length ? p[0].province_id : null;
-    // }
-
-    // Insert customer_address
-    const receiver = payload.receiver || {};
-    await conn.query(
-      'INSERT INTO customer_address (customer_id, province_id, receiver_name, receiver_phone, receiver_address) VALUES (?, ?, ?, ?, ?)',
-      [customerId, provinceId, receiver.name || customer.name || null, receiver.phone || customer.phone || null, receiver.address || (payload.pickup ? 'ที่ร้าน' : null)]
-    );
-
     // Insert order
+    const orderStatus = await resolveOrderStatus();
+    const promotionId = await resolvePromotionId();
     const [insOrder] = await conn.query(
-      'INSERT INTO `order` (branch_id, customer_id, promotion_id, customer_note, order_code, order_status, total_amount, florist_photo_url, rider_photo_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [branchId, customerId, payload.promotion_id || null, payload.customer_note || null, orderCode, 'received', payload.total_amount || 0, null, null]
+      'INSERT INTO orders (branch_id, customer_id, promotion_id, order_code, order_status, total_amount) VALUES (?, ?, ?, ?, ?, ?)',
+      [branchId, customerId, promotionId, orderCode, orderStatus, payload.total_amount || 0]
     );
     const orderId = insOrder.insertId;
+
+    // Insert order address
+    await conn.query(
+      'INSERT INTO order_address (order_id, receiver_name, receiver_phone, receiver_address) VALUES (?, ?, ?, ?)',
+      [orderId, receiver.name || customer.name || null, receiver.phone || customer.phone || null, receiver.address || (payload.pickup ? 'ที่ร้าน' : null)]
+    );
     
-    // Insert payment if provided
-    if (payload.payment) {
-      // use provided slip_image or generate a random placeholder filename
-      const slipImage = payload.payment;
-      const slipType = payload.method;
-      if (slipType === 'cash') {
-        await conn.query('INSERT INTO payment (payment_method_id,order_id) VALUES (?,?)', [1, orderId]);
-      } else if (slipType === 'credit') {
-         const [insPayment] = await conn.query('INSERT INTO payment (payment_method_id,order_id) VALUES (?,?)', [3, orderId]);
-         await conn.query('INSERT INTO payment_card_evidence (payment_id, trans_ref, card_last4, card_brand, created_at) VALUES (?, ?, ?, ?, NOW())', [insPayment.insertId, "23asd", slipImage, "Visa"]);
-      } else {
-        const [insPayment] = await conn.query('INSERT INTO payment (payment_method_id,order_id) VALUES (?,?)', [2, orderId]);
-        await conn.query('INSERT INTO payment_evidence (payment_id, trans_ref, sender_name, bank, slip_time, raw_response, created_at) VALUES (?, ?, ?, ?, ?, ?, NOW())', [insPayment.insertId, slipImage.transRef, slipImage.sender.displayName, slipImage.sendingBank, slipImage.transTimestamp, JSON.stringify(slipImage)]);
-      }
-      
+    // Insert payment and link payment_method_id
+    const slipImage = payload.payment;
+    const slipType = payload.method;
+    const paymentMethodId = await resolvePaymentMethodId(slipType);
+    const [insPayment] = await conn.query(
+      'INSERT INTO payment (payment_method_id, order_id) VALUES (?, ?)',
+      [paymentMethodId, orderId]
+    );
+
+    if (slipType === 'credit') {
+      await conn.query(
+        'INSERT INTO payment_card_evidence (payment_id, trans_ref, card_last4, card_brand) VALUES (?, ?, ?, ?)',
+        [insPayment.insertId, null, String(slipImage || ''), 'VISA']
+      );
+    } else if (slipType === 'qr') {
+      await conn.query(
+        'INSERT INTO payment_card_evidence (payment_id, trans_ref, card_last4, card_brand) VALUES (?, ?, ?, ?)',
+        [insPayment.insertId, slipImage?.transRef || null, null, 'QR']
+      );
     }
 
     // Insert shopping_cart items and customizations
     if (Array.isArray(payload.items)) {
       for (const it of payload.items) {
-        const [insCart] = await conn.query('INSERT INTO shopping_cart (order_id, product_id, qty, price_total) VALUES (?, ?, ?, ?)', [orderId, it.product_id, it.qty || 1, it.price_total || 0]);
-        await conn.query('UPDATE branch_container SET stock_qty = stock_qty - 1, is_available = CASE WHEN stock_qty - 1 <= 0 THEN 0 ELSE 1 END WHERE branch_id = ? AND product_id = ?', [branchId, it.product_id]);
+        const [insCart] = await conn.query(
+          'INSERT INTO shopping_cart (order_id, product_id, total_price) VALUES (?, ?, ?)',
+          [orderId, it.product_id, it.price_total || 0]
+        );
         const shoppingCartId = insCart.insertId;
-        if (it.bouquet_style_id) {
-          await conn.query('INSERT INTO bouquet_customization (shopping_cart_id, bouquet_style_id) VALUES (?, ?)', [shoppingCartId, it.bouquet_style_id]);
-        }
-        if (it.vase_color_id) {
-          await conn.query('INSERT INTO vase_customization (shopping_cart_id, vase_color_id) VALUES (?, ?)', [shoppingCartId, it.vase_color_id]);
-        }
-        if (Array.isArray(it.flowers)) {
-          for (const ftId of it.flowers) {
-            await conn.query('INSERT INTO flower_detail (shopping_cart_id, flower_type_id) VALUES (?, ?)', [shoppingCartId, ftId]);
+        const customization = it.customization || {};
+
+        const resolveFlowerIdByName = async (flowerName) => {
+          const [rows] = await conn.query('SELECT flower_id FROM flower WHERE flower_name = ? LIMIT 1', [flowerName]);
+          return rows.length ? rows[0].flower_id : null;
+        };
+
+        const resolveFillerFlowerIdByName = async (flowerName) => {
+          const [rows] = await conn.query(
+            'SELECT filler_flower_id FROM filler_flower WHERE filler_flower_name = ? LIMIT 1',
+            [flowerName]
+          );
+          return rows.length ? rows[0].filler_flower_id : null;
+        };
+
+        if (Array.isArray(customization.mainFlowers) && customization.mainFlowers.length > 0) {
+          for (const flowerItem of customization.mainFlowers) {
+            let flowerId = Number(flowerItem?.id || 0);
+            if (!flowerId && flowerItem?.name) {
+              flowerId = Number(await resolveFlowerIdByName(flowerItem.name) || 0);
+            }
+            const qty = Number(flowerItem?.count || 1);
+            if (flowerId > 0) {
+              await conn.query(
+                'INSERT INTO flower_detail (shopping_cart_id, flower_id, quantity) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE quantity = VALUES(quantity)',
+                [shoppingCartId, flowerId, qty > 0 ? qty : 1]
+              );
+            }
           }
+        } else if (Array.isArray(it.flowers)) {
+          for (const flowerId of it.flowers) {
+            await conn.query(
+              'INSERT INTO flower_detail (shopping_cart_id, flower_id, quantity) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE quantity = quantity + VALUES(quantity)',
+              [shoppingCartId, flowerId, 1]
+            );
+          }
+        }
+
+        if (customization.fillerFlower) {
+          const fillerFlowerId = await resolveFillerFlowerIdByName(customization.fillerFlower);
+          if (fillerFlowerId) {
+            await conn.query(
+              'INSERT INTO filler_flower_detail (shopping_cart_id, filler_flower_id) VALUES (?, ?) ON DUPLICATE KEY UPDATE filler_flower_id = VALUES(filler_flower_id)',
+              [shoppingCartId, fillerFlowerId]
+            );
+          }
+        }
+
+        if (customization.wrapperKraftPattern) {
+          const [wrappingRows] = await conn.query(
+            'SELECT wrapping_id FROM wrapping_material WHERE wrapping_name = ? LIMIT 1',
+            [customization.wrapperKraftPattern]
+          );
+          if (wrappingRows.length > 0) {
+            await conn.query(
+              'INSERT INTO wrapping_detail (shopping_cart_id, wrapping_id) VALUES (?, ?) ON DUPLICATE KEY UPDATE wrapping_id = VALUES(wrapping_id)',
+              [shoppingCartId, wrappingRows[0].wrapping_id]
+            );
+          }
+        }
+
+        if (customization.ribbonStyle) {
+          const [ribbonRows] = await conn.query(
+            'SELECT ribbon_id FROM ribbon WHERE ribbon_name = ? LIMIT 1',
+            [customization.ribbonStyle]
+          );
+          if (ribbonRows.length > 0) {
+            const ribbonId = ribbonRows[0].ribbon_id;
+            let ribbonColorId = null;
+            if (customization.ribbonColor) {
+              const [colorRows] = await conn.query(
+                'SELECT ribbon_color_id FROM ribbon_color WHERE ribbon_id = ? AND ribbon_color_name = ? LIMIT 1',
+                [ribbonId, customization.ribbonColor]
+              );
+              if (colorRows.length > 0) {
+                ribbonColorId = colorRows[0].ribbon_color_id;
+              }
+            }
+
+            await conn.query(
+              'INSERT INTO ribbon_detail (shopping_cart_id, ribbon_id, ribbon_color_id) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE ribbon_color_id = VALUES(ribbon_color_id)',
+              [shoppingCartId, ribbonId, ribbonColorId]
+            );
+          }
+        }
+
+        if (customization.hasCard && customization.cardTemplate) {
+          const [cardRows] = await conn.query('SELECT card_id FROM card WHERE card_name = ? LIMIT 1', [customization.cardTemplate]);
+          if (cardRows.length > 0) {
+            await conn.query(
+              'INSERT INTO card_detail (shopping_cart_id, card_id, message) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE message = VALUES(message)',
+              [shoppingCartId, cardRows[0].card_id, customization.cardMessage || null]
+            );
+          }
+        }
+
+        if (customization.vaseShape) {
+          const [vaseRows] = await conn.query(
+            'SELECT vase_id FROM vase WHERE vase_name = ? AND product_id = ? LIMIT 1',
+            [customization.vaseShape, it.product_id]
+          );
+          if (vaseRows.length > 0) {
+            await conn.query(
+              'INSERT INTO vase_customization (shopping_cart_id, vase_id) VALUES (?, ?) ON DUPLICATE KEY UPDATE vase_id = VALUES(vase_id)',
+              [shoppingCartId, vaseRows[0].vase_id]
+            );
+          }
+        }
+
+        if (customization.monetaryBouquetId && customization.foldingStyleId && customization.moneyAmount) {
+          await conn.query(
+            'INSERT INTO monetary_bouquet_detail (shopping_cart_id, monetary_bouquet_id, folding_style_id, amount) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE monetary_bouquet_id = VALUES(monetary_bouquet_id), folding_style_id = VALUES(folding_style_id), amount = VALUES(amount)',
+            [shoppingCartId, customization.monetaryBouquetId, customization.foldingStyleId, customization.moneyAmount]
+          );
         }
       }
     }
@@ -292,78 +937,12 @@ app.post("/check-slips", upload.single("files"), async (req, res) => {
   }
 });
 
-app.post("/api/orders/search", async (req, res) => {
-  
-  try {
-    const { order_code } = req.body;
-    if (!order_code || typeof order_code !== "string") {
-      return res.status(400).json({ message: "order_code ไม่ถูกต้อง" });
-    }
-    
-    const [rows] = await pool.execute(
-  `
-  SELECT 
-    o.*,
-    b.branch_name,
-    ca.receiver_name,
-    ca.receiver_phone,
-    ca.receiver_address
-  FROM \`order\` o
-  JOIN branch b ON b.branch_id = o.branch_id
-  JOIN customer_address ca ON ca.customer_id = o.customer_id
-  WHERE o.order_code = ?
-  `,
-  [order_code]
-);
-    const [carts] = await pool.execute(
-      `
-  SELECT 
-    sc.*,
-    pr.product_name,
-    pr.product_img,
-    pt.product_type_name,
-    GROUP_CONCAT(ft.flower_name ORDER BY ft.flower_name SEPARATOR ', ') AS flowers,
-    vco.vase_color_name,
-    bst.bouquet_style_name
-
-  FROM \`shopping_cart\` sc
-  JOIN product pr ON pr.product_id = sc.product_id
-  JOIN product_type pt ON pt.product_type_id = pr.product_type_id
-  LEFT JOIN flower_detail fd ON fd.shopping_cart_id = sc.shopping_cart_id
-  LEFT JOIN flower_type ft ON ft.flower_type_id = fd.flower_type_id
-  LEFT JOIN vase_customization vc ON vc.shopping_cart_id = sc.shopping_cart_id
-  LEFT JOIN vase_color vco ON vco.vase_color_id = vc.vase_color_id
-  LEFT JOIN bouquet_customization bc ON bc.shopping_cart_id = sc.shopping_cart_id
-  LEFT JOIN bouquet_style bst ON bst.bouquet_style_id = bc.bouquet_style_id
-  WHERE sc.order_id = ?
-  GROUP BY 
-  sc.shopping_cart_id,
-  pr.product_name;
-  `,
-      [rows[0].order_id]
-    );
-
-    const list = rows;
-    if (list.length === 0) {
-      return res.status(404).json({ message: "ไม่พบคำสั่งซื้อ" });
-    }
-
-    return res.json({
-      message: "พบคำสั่งซื้อ",
-      order: list[0],
-      records: carts,
-    });
-  } catch (err) {
-    return res.status(500).json({ message: "Server error" });
-  }
-});
-
 app.post("/check-dupslip", async (req, res) => {
   try {
     const { text } = req.body;
 
     const [rows] = await pool.query(
-      "SELECT 1 FROM payment_evidence WHERE trans_ref = ? LIMIT 1",
+      "SELECT 1 FROM payment_card_evidence WHERE trans_ref = ? LIMIT 1",
       [text]
     );
 
@@ -382,28 +961,91 @@ app.post("/check-dupslip", async (req, res) => {
 
 app.post("/check-stocks", async (req, res) => {
   try {
-    const is_available = true;
+    let is_available = true;
     const orders = req.body;
     for (const item of orders.cart) {
-      //console.log(`สินค้าชิ้นที่ ${index + 1}:`, item.productId,`สาขาที่ :`, orders.selectedBranchId);
       const [rows] = await pool.query(
-        "SELECT bp.stock_qty FROM branch_container bp WHERE product_id = ? AND branch_id = ?",
+        "SELECT bp.product_stock_qty FROM branch_product_container bp WHERE product_id = ? AND branch_id = ?",
         [item.productId, orders.selectedBranchId]
       );
-      if (rows[0].stock_qty <= 0) {
+      if (!rows.length || rows[0].product_stock_qty <= 0) {
         is_available = false;
+        break;
       }
-      
-      // console.log(`ผลลัพธ์สินค้าคงเหลือที่:`, rows[0].stock_qty);
-      // if (rows[0].stock_qty <= 0) {
-      //   is_available = false;
-      //   break
-      // }
-      };
+    }
     return res.json({ is_available : is_available });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/orders/search", async (req, res) => {
+  
+  try {
+    const { order_code } = req.body;
+    if (!order_code || typeof order_code !== "string") {
+      return res.status(400).json({ message: "order_code ไม่ถูกต้อง" });
+    }
+    
+    const [rows] = await pool.execute(
+  `
+  SELECT 
+    o.*,
+    b.branch_name,
+    oa.receiver_name,
+    oa.receiver_phone,
+    oa.receiver_address
+  FROM orders o
+  JOIN branch b ON b.branch_id = o.branch_id
+  LEFT JOIN order_address oa ON oa.order_id = o.order_id
+  WHERE o.order_code = ?
+  `,
+  [order_code]
+);
+    const [carts] = await pool.execute(
+      `
+  SELECT 
+    sc.*,
+    pr.product_name,
+    pr.product_img,
+    pt.product_type_name,
+    GROUP_CONCAT(CONCAT('ดอกไม้#', fd.flower_id) ORDER BY fd.flower_id SEPARATOR ', ') AS flowers
+  FROM shopping_cart sc
+  JOIN product pr ON pr.product_id = sc.product_id
+  JOIN product_type pt ON pt.product_type_id = pr.product_type_id
+  LEFT JOIN flower_detail fd ON fd.shopping_cart_id = sc.shopping_cart_id
+  WHERE sc.order_id = ?
+  GROUP BY 
+  sc.shopping_cart_id,
+  pr.product_name,
+  pr.product_img,
+  pt.product_type_name,
+  sc.total_price;
+  `,
+      [rows[0].order_id]
+    );
+
+    const list = rows;
+    if (list.length === 0) {
+      return res.status(404).json({ message: "ไม่พบคำสั่งซื้อ" });
+    }
+
+    const records = carts.map((row) => ({
+      ...row,
+      price_total: Number(row.total_price || 0),
+      vase_color_name: null,
+      bouquet_style_name: null,
+      flowers: row.flowers || '-'
+    }));
+
+    return res.json({
+      message: "พบคำสั่งซื้อ",
+      order: list[0],
+      records,
+    });
+  } catch (err) {
+    return res.status(500).json({ message: "Server error" });
   }
 });
 

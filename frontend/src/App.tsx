@@ -23,23 +23,25 @@ export interface MainFlowerItem {
 
 export interface CartCustomization {
   bouquetKind?: 'normal' | 'money-envelope';
-  vaseMaterial?: 'glass' | 'ceramic' | 'clay';
-  vaseShape?: 'cylinder' | 'bottle' | 'round';
+  vaseMaterial?: string;
+  vaseShape?: string;
   mainFlowers?: MainFlowerItem[];
   mainFlower?: string;
   fillerFlower?: string;
   mainFlowerStemCount?: number;
-  wrapperPaper?: 'kraft' | 'clear' | 'pastel';
-  wrapperKraftPattern?: 'kraft-plain' | 'kraft-newsprint' | 'kraft-floral';
-  wrapperPastelColor?: 'pastel-pink' | 'pastel-peach' | 'pastel-mint' | 'pastel-lilac';
-  wrapperClearStyle?: 'clear-transparent' | 'clear-rainbow';
-  ribbonStyle?: 'style-1' | 'style-2';
-  ribbonColor?: 'blue' | 'red';
+  wrapperPaper?: string;
+  wrapperKraftPattern?: string;
+  wrapperPastelColor?: string;
+  wrapperClearStyle?: string;
+  ribbonStyle?: string;
+  ribbonColor?: string;
   moneyPackage?: 20 | 50 | 100 | 500 | 1000;
   moneyAmount?: number;
+  monetaryBouquetId?: number;
+  foldingStyleId?: number;
   moneyFoldStyle?: 'fan' | 'rose' | 'heart' | 'star';
   hasCard?: boolean;
-  cardTemplate?: 'classic' | 'minimal' | 'romantic';
+  cardTemplate?: string;
   cardMessage?: string;
 }
 
@@ -105,6 +107,8 @@ export default function App() {
   const [orderData, setOrderData] = useState<OrderData | null>(null);
   const [savedOrders, setSavedOrders] = useState<OrderData[]>([]);
   const [currentUserPoints, setCurrentUserPoints] = useState(0);
+  const [currentCustomerName, setCurrentCustomerName] = useState('-');
+  const [currentMemberLevelName, setCurrentMemberLevelName] = useState('-');
   const [isUserPointsLoading, setIsUserPointsLoading] = useState(false);
   const [checkoutPricing, setCheckoutPricing] = useState<CheckoutPricing>({
     subtotal: 0,
@@ -202,28 +206,34 @@ export default function App() {
   useEffect(() => {
     if (!userPhone) {
       setCurrentUserPoints(0);
+      setCurrentCustomerName('-');
+      setCurrentMemberLevelName('-');
       setIsUserPointsLoading(false);
       return;
     }
 
     const controller = new AbortController();
-    const fetchCurrentUserPoints = async () => {
+    const fetchCurrentUserProfile = async () => {
       setIsUserPointsLoading(true);
       try {
-        const url = `${API_BASE ? `${API_BASE}/api/customers/points` : '/api/customers/points'}?phone=${encodeURIComponent(userPhone)}`;
+        const url = `${API_BASE ? `${API_BASE}/api/customers/profile` : '/api/customers/profile'}?phone=${encodeURIComponent(userPhone)}`;
         const response = await fetch(url, { signal: controller.signal });
 
         if (!response.ok) {
-          throw new Error(`Failed to fetch points: ${response.status}`);
+          throw new Error(`Failed to fetch customer profile: ${response.status}`);
         }
 
         const data = await response.json();
         const points = Number(data?.points || 0);
         setCurrentUserPoints(Number.isFinite(points) ? Math.max(0, Math.floor(points)) : 0);
+        setCurrentCustomerName(data?.customer_name || '-');
+        setCurrentMemberLevelName(data?.member_level_name || '-');
       } catch (error) {
         if ((error as Error).name !== 'AbortError') {
-          console.error('Failed to load user points', error);
+          console.error('Failed to load customer profile', error);
           setCurrentUserPoints(0);
+          setCurrentCustomerName('-');
+          setCurrentMemberLevelName('-');
         }
       } finally {
         if (!controller.signal.aborted) {
@@ -232,7 +242,7 @@ export default function App() {
       }
     };
 
-    fetchCurrentUserPoints();
+    fetchCurrentUserProfile();
 
     return () => {
       controller.abort();
@@ -243,7 +253,6 @@ export default function App() {
   const [Senderaddress, setSenderaddress] = useState<string | null>(null);
   const [Senderphone, setSenderphone] = useState<string | null>(null);
   const [Deliverytype, setDeliverytype] = useState<'pickup' | 'delivery'>('delivery');
-  const [Cardmessage, setCardmessage] = useState<string | undefined>(undefined);
 
   const normalizedPromotionCode = checkoutPricing.promotionCode?.trim().toUpperCase() || null;
   const hasFreeShippingCode = normalizedPromotionCode === FREE_SHIPPING_CODE;
@@ -253,12 +262,11 @@ export default function App() {
     checkoutPricing.subtotal === cartSubtotal ? checkoutPricing.finalAmount : cartSubtotal;
   const payableTotal = Math.max(basePayableTotal + shippingFee - shippingDiscount, 0);
 
-  const handleDeliveryConfirm = (name: string, address: string, phone: string, deliveryType: 'pickup' | 'delivery',selectedBranchId: number, cardMessage?: string) => {
+  const handleDeliveryConfirm = (name: string, address: string, phone: string, deliveryType: 'pickup' | 'delivery', selectedBranchId: number) => {
     setSendername(name);
     setSenderaddress(address);
     setSenderphone(phone);
     setDeliverytype(deliveryType);
-    setCardmessage(cardMessage);
     setBranchId(selectedBranchId);
     if (deliveryType === 'pickup' && hasFreeShippingCode) {
       setCheckoutPricing((prev) => ({
@@ -289,7 +297,7 @@ export default function App() {
           total_discount: checkoutPricing.totalDiscount,
           customer: { name: Sendername, phone: Senderphone },
           receiver: { name: Sendername, phone: Senderphone, address: Deliverytype === 'pickup' ? 'ที่ร้าน' : Senderaddress },
-          customer_note: Cardmessage || null,
+          customer_note: null,
           total_amount: payableTotal,
           payment: slipOkData.data,
           method: slipOkData.method ,
@@ -299,7 +307,8 @@ export default function App() {
             price_total: it.price,
             bouquet_style_id: it.productType === 'bouquet' ? it.bouquetStyle : undefined,
             vase_color_id: it.productType === 'vase' ? it.vaseColorId : undefined,
-            flowers: (it as any).flowerTypeIds || []
+            flowers: (it as any).flowerTypeIds || [],
+            customization: it.customization || undefined,
           }))
         };
 
@@ -328,7 +337,7 @@ export default function App() {
           phone: Senderphone || '',
           branch: branchId,
           deliveryType: Deliverytype,
-          cardMessage: Cardmessage,
+          cardMessage: undefined,
         };
         setOrderData(order);
         setSavedOrders([...savedOrders, order]);
@@ -424,6 +433,8 @@ export default function App() {
         <Cart
           items={cart}
           currentDeliveryType={Deliverytype}
+          customerName={currentCustomerName}
+          memberLevelName={currentMemberLevelName}
           currentUserPoints={currentUserPoints}
           isUserPointsLoading={isUserPointsLoading}
           onAddMore={handleAddMoreItems}
@@ -450,6 +461,7 @@ export default function App() {
         <DeliveryInfo
           cartItems={cart}
           orderId={`ORD${Date.now().toString().slice(-8)}`}
+          loggedInPhone={userPhone ?? undefined}
           onConfirm={handleDeliveryConfirm}
         />
       )}

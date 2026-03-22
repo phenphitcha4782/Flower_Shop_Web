@@ -263,6 +263,12 @@ export default function ManagerDashboard() {
                 จัดการสินค้า
               </button>
               <button
+                onClick={() => navigate('/manager/employees')}
+                className="px-4 py-2 bg-white border-2 border-blue-300 text-blue-700 rounded-lg hover:bg-blue-50 transition-colors"
+              >
+                พนักงานในสาขา
+              </button>
+              <button
                 onClick={() => navigate('/manager/orders')}
                 className="px-4 py-2 bg-white border-2 border-gray-300 text-gray-700 rounded-lg hover:border-gray-400 transition-colors"
               >

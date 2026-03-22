@@ -1,11 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, Plus, ShoppingCart, Trash2 } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { CartItem, type CheckoutPricing } from '../App';
+import { getPromotions, type Promotion } from '../api/promotion.api';
 import { ImageWithFallback } from './figma/ImageWithFallback';
 
 interface CartProps {
   items: CartItem[];
   currentDeliveryType: 'pickup' | 'delivery';
+  customerName: string;
+  memberLevelName: string;
   currentUserPoints: number;
   isUserPointsLoading: boolean;
   onAddMore: () => void;
@@ -14,165 +17,155 @@ interface CartProps {
   onPricingChange: (pricing: CheckoutPricing) => void;
 }
 
-type MemberTier = 'gold' | 'silver' | 'bronze';
 type PromotionBenefitType = 'amount' | 'percent' | 'shipping';
-type PromotionCodeType = 'ส่วนลด' | 'ส่งฟรี';
 
-interface PromotionPreset {
-  code: string;
-  label: string;
-  benefitType: PromotionBenefitType;
-  benefitValue: number;
-  maxDiscount?: number;
-  minSubtotal?: number;
-  memberTiers: MemberTier[];
-  codeType: PromotionCodeType;
-  campaignLabel: string;
-  expiresAt: string;
-  totalQuota: number;
-  usedCount: number;
+// Extended promotion interface with calculated fields for UI
+interface PromotionPreset extends Promotion {
+  totalQuota?: number;
+  usedCount?: number;
 }
-
-const PROMOTION_PRESETS: PromotionPreset[] = [
-  {
-    code: 'BLOOM50',
-    label: 'ลด 50 บาท',
-    benefitType: 'amount',
-    benefitValue: 50,
-    minSubtotal: 199,
-    memberTiers: ['bronze', 'silver', 'gold'],
-    codeType: 'ส่วนลด',
-    campaignLabel: 'ร้านโค้ดคุ้ม Xtra',
-    expiresAt: '08.04.2026',
-    totalQuota: 20,
-    usedCount: 14,
-  },
-  {
-    code: 'FLOWER100',
-    label: 'ลด 100 บาท',
-    benefitType: 'amount',
-    benefitValue: 100,
-    minSubtotal: 399,
-    memberTiers: ['silver', 'gold'],
-    codeType: 'ส่วนลด',
-    campaignLabel: 'ดีลสมาชิก Silver+ Gold',
-    expiresAt: '10.04.2026',
-    totalQuota: 16,
-    usedCount: 11,
-  },
-  {
-    code: 'LOVE20',
-    label: 'ลด 20%',
-    benefitType: 'percent',
-    benefitValue: 20,
-    maxDiscount: 300,
-    minSubtotal: 199,
-    memberTiers: ['gold'],
-    codeType: 'ส่วนลด',
-    campaignLabel: 'ร้านโค้ดคุ้ม Xtra',
-    expiresAt: '08.04.2026',
-    totalQuota: 12,
-    usedCount: 6,
-  },
-  {
-    code: 'SAVE120',
-    label: 'ลด 120 บาท',
-    benefitType: 'amount',
-    benefitValue: 120,
-    minSubtotal: 599,
-    memberTiers: ['bronze', 'silver', 'gold'],
-    codeType: 'ส่วนลด',
-    campaignLabel: 'เทศกาลพิเศษประจำเดือน',
-    expiresAt: '15.04.2026',
-    totalQuota: 10,
-    usedCount: 7,
-  },
-  {
-    code: 'FREESHIP',
-    label: 'ส่งฟรี',
-    benefitType: 'shipping',
-    benefitValue: 0,
-    minSubtotal: 499,
-    memberTiers: ['silver', 'gold'],
-    codeType: 'ส่งฟรี',
-    campaignLabel: 'ส่งไวค่าส่งฟรี',
-    expiresAt: '20.04.2026',
-    totalQuota: 30,
-    usedCount: 18,
-  },
-];
 
 const ORDER_SHIPPING_FEE = 39;
 
-const isTierEligible = (preset: PromotionPreset, memberTier: MemberTier): boolean => {
-  return preset.memberTiers.includes(memberTier);
-};
-
-const getPromotionPreset = (code: string): PromotionPreset | undefined => {
-  const normalizedCode = code.trim().toUpperCase();
-  if (!normalizedCode) return undefined;
-  return PROMOTION_PRESETS.find((preset) => preset.code === normalizedCode);
-};
-
-const getPromotionRemainingCount = (preset: PromotionPreset): number => {
-  return Math.max(preset.totalQuota - preset.usedCount, 0);
-};
-
-const getPromotionBenefitLabel = (preset: PromotionPreset): string => {
-  if (preset.benefitType === 'amount') {
-    return `ลด ${preset.benefitValue.toLocaleString()} บาท`;
-  }
-  if (preset.benefitType === 'percent') {
-    if (preset.maxDiscount) {
-      return `ลด ${preset.benefitValue}% สูงสุด ฿${preset.maxDiscount.toLocaleString()}`;
+const getPromotionPreset = (
+  promotions: PromotionPreset[] | undefined,
+  code: string
+): PromotionPreset | undefined => {
+  try {
+    if (!promotions || !Array.isArray(promotions) || promotions.length === 0) {
+      return undefined;
     }
-    return `ลด ${preset.benefitValue}%`;
+    const normalizedCode = code?.trim().toUpperCase();
+    if (!normalizedCode) return undefined;
+    return promotions.find(
+      (preset) => String(preset?.code || '').trim().toUpperCase() === normalizedCode
+    );
+  } catch (error) {
+    console.error('Error in getPromotionPreset:', error);
+    return undefined;
   }
-  return 'ส่งฟรี';
 };
 
-const getPromotionMemberLabel = (tiers: MemberTier[]): string => {
-  return tiers.map((tier) => tier.toUpperCase()).join(', ');
+const getPromotionRemainingCount = (preset: PromotionPreset | undefined): number => {
+  try {
+    if (!preset) return -1;
+    const totalQuota =
+      preset.totalQuota !== undefined ? Number(preset.totalQuota) : Number(preset.usageLimit);
+    if (!Number.isFinite(totalQuota) || totalQuota <= 0) {
+      return -1; // Unlimited
+    }
+
+    const usedCount = Number(preset.usedCount || 0);
+    if (!Number.isFinite(usedCount) || usedCount <= 0) {
+      return Math.max(totalQuota, 0);
+    }
+
+    return Math.max(totalQuota - usedCount, 0);
+  } catch (error) {
+    console.error('Error in getPromotionRemainingCount:', error);
+    return -1;
+  }
+};
+
+const getPromotionRemainingLabel = (preset: PromotionPreset | undefined): string => {
+  const remaining = getPromotionRemainingCount(preset);
+  if (remaining < 0) {
+    return 'ไม่จำกัด';
+  }
+  return `${remaining.toLocaleString()} สิทธิ์`;
+};
+
+const getPromotionBenefitLabel = (preset: PromotionPreset | undefined): string => {
+  try {
+    if (!preset) return '-';
+    if (preset.benefitType === 'amount') {
+      return `ลด ${preset.benefitValue?.toLocaleString() || 0} บาท`;
+    }
+    if (preset.benefitType === 'percent') {
+      if (preset.maxDiscount) {
+        return `ลด ${preset.benefitValue}% สูงสุด ฿${preset.maxDiscount.toLocaleString()}`;
+      }
+      return `ลด ${preset.benefitValue}%`;
+    }
+    return 'ส่วนลดค่าจัดส่ง';
+  } catch (error) {
+    console.error('Error in getPromotionBenefitLabel:', error);
+    return '-';
+  }
+};
+
+const getPromotionDisplayText = (preset: PromotionPreset | undefined): string => {
+  if (!preset) return '-';
+  const code = String(preset.code || '').trim();
+  const name = String(preset.label || '').trim();
+  if (code && name) return `${code} - ${name}`;
+  return code || name || '-';
+};
+
+const getPromotionMemberLabel = (
+  memberLevelNames: string[] | undefined,
+  memberLevelIds: number[] | undefined
+): string => {
+  try {
+    if (memberLevelNames && Array.isArray(memberLevelNames) && memberLevelNames.length > 0) {
+      return memberLevelNames.join(', ');
+    }
+    if (memberLevelIds && Array.isArray(memberLevelIds) && memberLevelIds.length > 0) {
+      return memberLevelIds.join(', ');
+    }
+    return 'ทั้งหมด';
+  } catch (error) {
+    console.error('Error in getPromotionMemberLabel:', error);
+    return 'ทั้งหมด';
+  }
 };
 
 const getPromotionAvailability = (
-  preset: PromotionPreset,
-  memberTier: MemberTier,
+  preset: PromotionPreset | undefined,
   subtotal: number,
   deliveryType: 'pickup' | 'delivery'
 ): { isSelectable: boolean; reason: string | null } => {
-  if (preset.benefitType === 'shipping' && deliveryType === 'pickup') {
+  try {
+    if (!preset) {
+      return {
+        isSelectable: false,
+        reason: 'ไม่พบโปรโมชั่นนี้',
+      };
+    }
+
+    if (preset.benefitType === 'shipping' && deliveryType === 'pickup') {
+      return {
+        isSelectable: false,
+        reason: 'โค้ดส่วนลดค่าจัดส่งใช้ไม่ได้กับการรับหน้าร้าน (ไม่มีค่าส่ง)',
+      };
+    }
+
+    if (subtotal < (preset.minSubtotal || 0)) {
+      return {
+        isSelectable: false,
+        reason: `ต้องมียอดขั้นต่ำ ฿${(preset.minSubtotal || 0).toLocaleString()} จึงใช้โค้ดนี้ได้`,
+      };
+    }
+
+    const remaining = getPromotionRemainingCount(preset);
+    if (remaining === 0) {
+      return {
+        isSelectable: false,
+        reason: 'โค้ดนี้ถูกใช้ครบจำนวนแล้ว',
+      };
+    }
+
+    return {
+      isSelectable: true,
+      reason: null,
+    };
+  } catch (error) {
+    console.error('Error in getPromotionAvailability:', error);
     return {
       isSelectable: false,
-      reason: 'โค้ดส่งฟรีใช้ไม่ได้กับการรับหน้าร้าน (ไม่มีค่าส่ง)',
+      reason: 'เกิดข้อผิดพลาด',
     };
   }
-
-  if (!isTierEligible(preset, memberTier)) {
-    return {
-      isSelectable: false,
-      reason: `ใช้ได้เฉพาะสมาชิก ${getPromotionMemberLabel(preset.memberTiers)}`,
-    };
-  }
-
-  if (subtotal < (preset.minSubtotal || 0)) {
-    return {
-      isSelectable: false,
-      reason: `ต้องมียอดขั้นต่ำ ฿${(preset.minSubtotal || 0).toLocaleString()} จึงใช้โค้ดนี้ได้`,
-    };
-  }
-
-  if (getPromotionRemainingCount(preset) <= 0) {
-    return {
-      isSelectable: false,
-      reason: 'โค้ดนี้ถูกใช้ครบจำนวนแล้ว',
-    };
-  }
-
-  return {
-    isSelectable: true,
-    reason: null,
-  };
 };
 
 const getPromotionDiscountFromPreset = (preset: PromotionPreset, subtotal: number): number => {
@@ -191,10 +184,14 @@ const getPromotionDiscountFromPreset = (preset: PromotionPreset, subtotal: numbe
   return 0;
 };
 
-const resolvePromotionDiscount = (code: string, subtotal: number): number => {
+const resolvePromotionDiscount = (
+  code: string,
+  subtotal: number,
+  promotions: PromotionPreset[]
+): number => {
   if (!code) return 0;
   const normalizedCode = code.trim().toUpperCase();
-  const preset = getPromotionPreset(normalizedCode);
+  const preset = getPromotionPreset(promotions, normalizedCode);
   if (preset) {
     return getPromotionDiscountFromPreset(preset, subtotal);
   }
@@ -210,6 +207,8 @@ const resolvePromotionDiscount = (code: string, subtotal: number): number => {
 export function Cart({
   items,
   currentDeliveryType,
+  customerName,
+  memberLevelName,
   currentUserPoints,
   isUserPointsLoading,
   onAddMore,
@@ -217,9 +216,10 @@ export function Cart({
   onRemove,
   onPricingChange,
 }: CartProps) {
-  const currentMemberTier: MemberTier = 'gold';
   const totalAmount = items.reduce((sum, item) => sum + item.price, 0);
   const promotionDropdownRef = useRef<HTMLDivElement | null>(null);
+  const [promotions, setPromotions] = useState<PromotionPreset[]>([]);
+  const [isLoadingPromotions, setIsLoadingPromotions] = useState(true);
   const [promotionInput, setPromotionInput] = useState('');
   const [appliedPromotionCode, setAppliedPromotionCode] = useState<string | null>(null);
   const [promotionError, setPromotionError] = useState<string | null>(null);
@@ -273,9 +273,14 @@ export function Cart({
     const custom = item.customization;
     const lines: string[] = [];
 
+    const getLabel = (value?: string) => {
+      if (!value) return '-';
+      return labelMap[value] || value;
+    };
+
     if (item.productType === 'vase') {
       if (custom?.vaseMaterial || custom?.vaseShape) {
-        lines.push(`แจกัน: ${custom?.vaseMaterial ? labelMap[custom.vaseMaterial] : '-'} / ${custom?.vaseShape ? labelMap[custom.vaseShape] : '-'}`);
+        lines.push(`แจกัน: ${getLabel(custom?.vaseMaterial)} / ${getLabel(custom?.vaseShape)}`);
       }
     }
 
@@ -314,12 +319,29 @@ export function Cart({
       if (custom.wrapperPaper === 'clear' && custom.wrapperClearStyle) {
         lines.push(`กระดาษใส: ${labelMap[custom.wrapperClearStyle] || custom.wrapperClearStyle}`);
       }
+      if (
+        custom.wrapperKraftPattern &&
+        custom.wrapperPaper !== 'kraft' &&
+        custom.wrapperPaper !== 'pastel' &&
+        custom.wrapperPaper !== 'clear'
+      ) {
+        lines.push(`แบบกระดาษห่อ: ${labelMap[custom.wrapperKraftPattern] || custom.wrapperKraftPattern}`);
+      }
+    } else if (custom?.wrapperKraftPattern) {
+      lines.push(`แบบกระดาษห่อ: ${labelMap[custom.wrapperKraftPattern] || custom.wrapperKraftPattern}`);
     }
     if (custom?.ribbonStyle || custom?.ribbonColor) {
-      lines.push(`ริบบิ้น: ${custom?.ribbonStyle ? labelMap[custom.ribbonStyle] : '-'} ${custom?.ribbonColor ? labelMap[custom.ribbonColor] : ''}`.trim());
+      const ribbonParts: string[] = [];
+      if (custom?.ribbonStyle) {
+        ribbonParts.push(getLabel(custom.ribbonStyle));
+      }
+      if (custom?.ribbonColor) {
+        ribbonParts.push(getLabel(custom.ribbonColor));
+      }
+      lines.push(`ริบบิ้น: ${ribbonParts.join(' ')}`);
     }
     if (custom?.hasCard) {
-      lines.push(`การ์ด: ${custom.cardTemplate ? labelMap[custom.cardTemplate] : 'มีการ์ด'}`);
+      lines.push(`การ์ด: ${custom.cardTemplate ? getLabel(custom.cardTemplate) : 'มีการ์ด'}`);
       if (custom.cardMessage) {
         lines.push(`ข้อความการ์ด: "${custom.cardMessage}"`);
       }
@@ -333,18 +355,19 @@ export function Cart({
   };
 
   const promotionDiscount = useMemo(() => {
-    if (!appliedPromotionCode) return 0;
-    return resolvePromotionDiscount(appliedPromotionCode, totalAmount);
-  }, [appliedPromotionCode, totalAmount]);
+    if (!appliedPromotionCode || isLoadingPromotions) return 0;
+    return resolvePromotionDiscount(appliedPromotionCode, totalAmount, promotions);
+  }, [appliedPromotionCode, totalAmount, promotions, isLoadingPromotions]);
 
   const selectedPromotionPreset = useMemo(() => {
-    return getPromotionPreset(promotionInput);
-  }, [promotionInput]);
+    if (isLoadingPromotions) return undefined;
+    return getPromotionPreset(promotions, promotionInput);
+  }, [promotionInput, promotions, isLoadingPromotions]);
 
   const appliedPromotionPreset = useMemo(() => {
-    if (!appliedPromotionCode) return undefined;
-    return getPromotionPreset(appliedPromotionCode);
-  }, [appliedPromotionCode]);
+    if (!appliedPromotionCode || isLoadingPromotions) return undefined;
+    return getPromotionPreset(promotions, appliedPromotionCode);
+  }, [appliedPromotionCode, promotions, isLoadingPromotions]);
 
   const remainingAfterPromotion = Math.max(totalAmount - promotionDiscount, 0);
   const requestedPoints = useMemo(() => {
@@ -372,6 +395,24 @@ export function Cart({
     currentDeliveryType === 'delivery' && appliedPromotionPreset?.benefitType === 'shipping';
   const shippingDiscount = isFreeShippingPromotion ? shippingFee : 0;
   const finalAmountWithShipping = Math.max(finalAmount + shippingFee - shippingDiscount, 0);
+
+  // Fetch promotions on mount
+  useEffect(() => {
+    const fetchPromotions = async () => {
+      setIsLoadingPromotions(true);
+      try {
+        const data = await getPromotions();
+        setPromotions(data as PromotionPreset[]);
+      } catch (error) {
+        console.error('Failed to fetch promotions:', error);
+        setPromotions([]);
+      } finally {
+        setIsLoadingPromotions(false);
+      }
+    };
+
+    fetchPromotions();
+  }, []);
 
   useEffect(() => {
     onPricingChange({
@@ -413,6 +454,18 @@ export function Cart({
   }, []);
 
   const applyPromotionCode = (rawCode: string) => {
+    // Guard: check if promotions are still loading
+    if (isLoadingPromotions) {
+      setPromotionError('กำลังโหลดโปรโมชั่น กรุณารอนิดหน่อย');
+      return;
+    }
+
+    // Guard: check if promotions data is empty
+    if (!promotions || promotions.length === 0) {
+      setPromotionError('ไม่มีโปรโมชั่นที่ใช้ได้ในขณะนี้');
+      return;
+    }
+
     const normalizedCode = rawCode.trim().toUpperCase();
     if (!normalizedCode) {
       setAppliedPromotionCode(null);
@@ -420,47 +473,48 @@ export function Cart({
       return;
     }
 
-    const preset = getPromotionPreset(normalizedCode);
-    if (preset) {
-      if (preset.benefitType === 'shipping' && currentDeliveryType === 'pickup') {
-        setAppliedPromotionCode(null);
-        setPromotionError('โค้ดส่งฟรีใช้ไม่ได้กับการรับหน้าร้าน (ไม่มีค่าส่ง)');
+    try {
+      const preset = getPromotionPreset(promotions, normalizedCode);
+      if (preset) {
+        if (preset.benefitType === 'shipping' && currentDeliveryType === 'pickup') {
+          setAppliedPromotionCode(null);
+          setPromotionError('โค้ดส่วนลดค่าจัดส่งใช้ไม่ได้กับการรับหน้าร้าน (ไม่มีค่าส่ง)');
+          return;
+        }
+
+        if (totalAmount < (preset.minSubtotal || 0)) {
+          setAppliedPromotionCode(null);
+          setPromotionError(`โค้ดนี้ใช้ได้เมื่อยอดซื้อขั้นต่ำ ฿${(preset.minSubtotal || 0).toLocaleString()}`);
+          return;
+        }
+
+        const remainingCount = getPromotionRemainingCount(preset);
+        if (remainingCount === 0) {
+          setAppliedPromotionCode(null);
+          setPromotionError('โค้ดนี้ถูกใช้ครบจำนวนแล้ว');
+          return;
+        }
+        setAppliedPromotionCode(normalizedCode);
+        setPromotionInput(normalizedCode);
+        setPromotionError(null);
         return;
       }
 
-      if (!isTierEligible(preset, currentMemberTier)) {
+      const discount = resolvePromotionDiscount(normalizedCode, totalAmount, promotions);
+      if (discount <= 0) {
         setAppliedPromotionCode(null);
-        setPromotionError(`โค้ดนี้ใช้ได้เฉพาะสมาชิก ${getPromotionMemberLabel(preset.memberTiers)}`);
+        setPromotionError('ไม่พบโค้ดโปรโมชั่นนี้');
         return;
       }
 
-      if (totalAmount < (preset.minSubtotal || 0)) {
-        setAppliedPromotionCode(null);
-        setPromotionError(`โค้ดนี้ใช้ได้เมื่อยอดซื้อขั้นต่ำ ฿${(preset.minSubtotal || 0).toLocaleString()}`);
-        return;
-      }
-
-      if (getPromotionRemainingCount(preset) <= 0) {
-        setAppliedPromotionCode(null);
-        setPromotionError('โค้ดนี้ถูกใช้ครบจำนวนแล้ว');
-        return;
-      }
       setAppliedPromotionCode(normalizedCode);
       setPromotionInput(normalizedCode);
       setPromotionError(null);
-      return;
-    }
-
-    const discount = resolvePromotionDiscount(normalizedCode, totalAmount);
-    if (discount <= 0) {
+    } catch (error) {
+      console.error('Error applying promotion code:', error);
       setAppliedPromotionCode(null);
-      setPromotionError('ไม่พบโค้ดโปรโมชั่นนี้');
-      return;
+      setPromotionError('เกิดข้อผิดพลาดในการใช้โค้ด');
     }
-
-    setAppliedPromotionCode(normalizedCode);
-    setPromotionInput(normalizedCode);
-    setPromotionError(null);
   };
 
   const handleApplyPromotion = () => {
@@ -543,9 +597,15 @@ export function Cart({
 
             {/* Summary */}
             <div className="bg-white rounded-2xl p-6 shadow-md mb-6 space-y-6">
+              <div className="rounded-xl border border-blue-100 bg-blue-50/60 p-4">
+                <p className="text-sm text-gray-600">ลูกค้า</p>
+                <p className="text-gray-900">{customerName || '-'}</p>
+                <p className="text-sm text-gray-600 mt-1">ระดับสมาชิก: {memberLevelName || '-'}</p>
+              </div>
+                                  ใช้โค้ด {(appliedPromotionPreset ? getPromotionDisplayText(appliedPromotionPreset) : appliedPromotionCode)} สำเร็จ: ส่วนลดค่าจัดส่ง {currentDeliveryType === 'delivery' ? '(หักค่าส่งแล้ว)' : '(โค้ดนี้จะใช้ได้เมื่อเลือกแบบจัดส่ง)'}
               <div>
                 <p className="text-gray-900 mb-3">โค้ดโปรโมชั่น</p>
-                <p className="text-xs text-gray-500 mb-3">สมาชิกปัจจุบัน: {currentMemberTier.toUpperCase()}</p>
+                <p className="text-xs text-gray-500 mb-3">สมาชิกปัจจุบัน: {memberLevelName || '-'}</p>
 
                 <div className="relative mb-4" ref={promotionDropdownRef}>
                   <button
@@ -555,7 +615,7 @@ export function Cart({
                   >
                     <span className="truncate">
                       {selectedPromotionPreset
-                        ? `${selectedPromotionPreset.code} | ${getPromotionBenefitLabel(selectedPromotionPreset)} | เหลือ ${getPromotionRemainingCount(selectedPromotionPreset)} สิทธิ์`
+                        ? getPromotionDisplayText(selectedPromotionPreset)
                         : 'เลือกโค้ดโปรโมชั่น'}
                     </span>
                     <ChevronDown
@@ -565,45 +625,50 @@ export function Cart({
 
                   {promotionDropdownOpen && (
                     <div className="absolute z-20 mt-2 max-h-96 w-full overflow-y-auto rounded-xl border border-gray-200 bg-white p-2 shadow-lg">
-                      {PROMOTION_PRESETS.map((preset) => {
-                        const remaining = getPromotionRemainingCount(preset);
-                        const availability = getPromotionAvailability(
-                          preset,
-                          currentMemberTier,
-                          totalAmount,
-                          currentDeliveryType
-                        );
+                      {isLoadingPromotions ? (
+                        <p className="p-3 text-center text-gray-500">กำลังโหลดโปรโมชั่น...</p>
+                      ) : promotions.length === 0 ? (
+                        <p className="p-3 text-center text-gray-500">ไม่มีโปรโมชั่นที่ใช้งาน</p>
+                      ) : (
+                        promotions.map((preset) => {
+                          const perUserLimit = Number(preset.perUserLimit || 0);
+                          const availability = getPromotionAvailability(
+                            preset,
+                            totalAmount,
+                            currentDeliveryType
+                          );
 
-                        return (
-                          <button
-                            key={preset.code}
-                            type="button"
-                            disabled={!availability.isSelectable}
-                            onClick={() => handleSelectPromotion(preset.code)}
-                            className={`mb-2 w-full rounded-lg border p-3 text-left last:mb-0 ${availability.isSelectable ? 'border-gray-200 bg-white hover:border-blue-300 hover:bg-blue-50/30' : 'border-gray-200 bg-gray-50 text-gray-500'}`}
-                          >
-                            <div className="mb-1 flex items-start justify-between gap-2">
-                              <p className="text-sm font-semibold text-gray-900">
-                                {preset.code} · {getPromotionBenefitLabel(preset)}
-                              </p>
-                              <span className="rounded-full bg-orange-100 px-2 py-0.5 text-xs font-semibold text-orange-600">
-                                x{remaining}
-                              </span>
-                            </div>
+                          return (
+                            <button
+                              key={preset.code}
+                              type="button"
+                              disabled={!availability.isSelectable}
+                              onClick={() => handleSelectPromotion(preset.code)}
+                              className={`mb-2 w-full rounded-lg border p-3 text-left last:mb-0 ${availability.isSelectable ? 'border-gray-200 bg-white hover:border-blue-300 hover:bg-blue-50/30' : 'border-gray-200 bg-gray-50 text-gray-500'}`}
+                            >
+                              <div className="mb-1 flex items-start justify-between gap-2">
+                                <p className="text-sm font-semibold text-gray-900">
+                                  {getPromotionDisplayText(preset)}
+                                </p>
+                                <span className="rounded-full bg-orange-100 px-2 py-0.5 text-xs font-semibold text-orange-600">
+                                  x{perUserLimit > 0 ? perUserLimit : '∞'}
+                                </span>
+                              </div>
 
                             <p className="text-xs text-gray-600">
-                              ขั้นต่ำ ฿{(preset.minSubtotal || 0).toLocaleString()} · สมาชิก {getPromotionMemberLabel(preset.memberTiers)} · ประเภท {preset.codeType}
+                              ขั้นต่ำ ฿{(preset.minSubtotal || 0).toLocaleString()} · สมาชิก {getPromotionMemberLabel(preset.memberLevelNames, preset.memberLevelIds)} · ประเภท {preset.promotionTypeName || '-'}
                             </p>
                             <p className="mt-1 text-xs text-gray-500">
-                              {preset.campaignLabel} · ใช้ได้ถึง {preset.expiresAt} · ใช้ไปแล้ว {preset.usedCount.toLocaleString()} ครั้ง
+                              {preset.description || 'โปรโมชั่น'}
                             </p>
 
                             {!availability.isSelectable && availability.reason && (
                               <p className="mt-1 text-xs text-red-600">{availability.reason}</p>
                             )}
                           </button>
-                        );
-                      })}
+                          );
+                        })
+                      )}
                     </div>
                   )}
                 </div>
@@ -641,23 +706,28 @@ export function Cart({
                       <p><span className="text-gray-500">โค้ด:</span> {selectedPromotionPreset.code}</p>
                       <p><span className="text-gray-500">รายละเอียด:</span> {selectedPromotionPreset.label}</p>
                       <p><span className="text-gray-500">ลด:</span> {getPromotionBenefitLabel(selectedPromotionPreset)}</p>
-                      <p><span className="text-gray-500">ประเภทโค้ด:</span> {selectedPromotionPreset.codeType}</p>
-                      <p><span className="text-gray-500">สมาชิกที่ใช้ได้:</span> {getPromotionMemberLabel(selectedPromotionPreset.memberTiers)}</p>
-                      <p><span className="text-gray-500">ใช้ไปแล้ว:</span> {selectedPromotionPreset.usedCount.toLocaleString()} ครั้ง</p>
-                      <p><span className="text-gray-500">คงเหลือ:</span> {getPromotionRemainingCount(selectedPromotionPreset).toLocaleString()} สิทธิ์</p>
-                      <p><span className="text-gray-500">จำนวนทั้งหมด:</span> {selectedPromotionPreset.totalQuota.toLocaleString()} สิทธิ์</p>
+                      {selectedPromotionPreset.minSubtotal && (
+                        <p><span className="text-gray-500">ขั้นต่ำ:</span> ฿{selectedPromotionPreset.minSubtotal.toLocaleString()}</p>
+                      )}
+                      {selectedPromotionPreset.usageLimit && (
+                        <>
+                          <p><span className="text-gray-500">ใช้ไปแล้ว:</span> {selectedPromotionPreset.usedCount?.toLocaleString() || '0'} ครั้ง</p>
+                          <p><span className="text-gray-500">คงเหลือ:</span> {getPromotionRemainingLabel(selectedPromotionPreset)}</p>
+                          <p><span className="text-gray-500">สิทธิ์ต่อผู้ใช้:</span> {selectedPromotionPreset.perUserLimit?.toLocaleString() || 'ไม่จำกัด'} ครั้ง</p>
+                        </>
+                      )}
                     </div>
                   </div>
                 )}
                 {promotionError && <p className="text-red-500 text-sm mt-2">{promotionError}</p>}
                 {appliedPromotionCode && promotionDiscount > 0 && (
                   <p className="text-green-600 text-sm mt-2">
-                    ใช้โค้ด {appliedPromotionCode} สำเร็จ ลด {promotionDiscount.toLocaleString()} บาท
+                    ใช้โค้ด {(appliedPromotionPreset ? getPromotionDisplayText(appliedPromotionPreset) : appliedPromotionCode)} สำเร็จ ลด {promotionDiscount.toLocaleString()} บาท
                   </p>
                 )}
                 {appliedPromotionCode && appliedPromotionPreset?.benefitType === 'shipping' && (
                   <p className="text-green-600 text-sm mt-2">
-                    ใช้โค้ด {appliedPromotionCode} สำเร็จ: ส่งฟรี {currentDeliveryType === 'delivery' ? '(หักค่าส่งแล้ว)' : '(โค้ดนี้จะใช้ได้เมื่อเลือกแบบจัดส่ง)'}
+                    ใช้โค้ด {(appliedPromotionPreset ? getPromotionDisplayText(appliedPromotionPreset) : appliedPromotionCode)} สำเร็จ: ส่วนลดค่าจัดส่ง {currentDeliveryType === 'delivery' ? '(หักค่าส่งแล้ว)' : '(โค้ดนี้จะใช้ได้เมื่อเลือกแบบจัดส่ง)'}
                   </p>
                 )}
               </div>

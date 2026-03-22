@@ -19,6 +19,7 @@ import RiderLogin from './components/rider/RiderLogin';
 
 // Manager Pages
 import ManagerDashboard from './components/manager/ManagerDashboard';
+import ManagerEmployees from './components/manager/ManagerEmployees';
 import ManagerLogin from './components/manager/ManagerLogin';
 import OrderHistory from './components/manager/OrderHistory';
 import ProductManagement from './components/manager/ProductManagement';
@@ -63,6 +64,7 @@ export default function App() {
         {/* Manager */}
         <Route path="/manager/login" element={<ManagerLogin onLogin={() => setUserRole('manager')} />} />
         <Route path="/manager/dashboard" element={<ManagerDashboard />} />
+        <Route path="/manager/employees" element={<ManagerEmployees />} />
         <Route path="/manager/products" element={<ProductManagement />} />
         <Route path="/manager/orders" element={<OrderHistory />} />
         <Route path="/manager/promotions" element={<PromotionManagement />} />

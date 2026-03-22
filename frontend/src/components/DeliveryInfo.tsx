@@ -1,21 +1,20 @@
-import { useState,useEffect } from 'react';
-import { MapPin, Home, Truck, MessageSquare } from 'lucide-react';
+import { Home, MapPin, Truck } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { Branch, getBranches, getRegions, type Region } from "../api/branch.api";
 import { CartItem } from '../App';
-import Swal from 'sweetalert2';
 
 interface DeliveryInfoProps {
   cartItems: CartItem[];
   orderId: string;
-  onConfirm: (name: string, address: string, phone: string, deliveryType: 'pickup' | 'delivery', selectedBranchId: number, cardMessage?: string) => void;
+  loggedInPhone?: string;
+  onConfirm: (name: string, address: string, phone: string, deliveryType: 'pickup' | 'delivery', selectedBranchId: number) => void;
 }
 
-export function DeliveryInfo({cartItems, orderId, onConfirm}: DeliveryInfoProps) {
+export function DeliveryInfo({cartItems, orderId, loggedInPhone, onConfirm}: DeliveryInfoProps) {
   const [deliveryType, setDeliveryType] = useState<'pickup' | 'delivery' | null>(null);
   const [name, setName] = useState('');
   const [address, setAddress] = useState('');
-  const [phone, setPhone] = useState('');
-  const [cardMessage, setCardMessage] = useState('');
+  const [phone, setPhone] = useState(loggedInPhone ?? '');
 
   const [selectedRegionId, setSelectedRegionId] = useState<number | "">("");
     const [selectedBranchId, setSelectedBranchId] = useState<number | "">("");
@@ -75,57 +74,21 @@ export function DeliveryInfo({cartItems, orderId, onConfirm}: DeliveryInfoProps)
     };
   }, [selectedRegionId]);
 
+  useEffect(() => {
+    if (loggedInPhone) {
+      setPhone(loggedInPhone);
+    }
+  }, [loggedInPhone]);
+
 
   const handleConfirm = async () => {
-    const check = await handleCheckStock(cartItems,selectedBranchId);
-    console.log("check stock result",check);
-    // if (check === false) {
-    //   Swal.fire({
-    //     title: "ขออภัย สินค้าหมด",
-    //     text: "ต้องการให้ระบบค้นหาสินค้าในสาขาอื่นหรือไม่?",
-    //     icon: "warning",
-    //     showCancelButton: true,
-    //     confirmButtonColor: "#3085d6",
-    //     cancelButtonColor: "#d33",
-    //     confirmButtonText: "ค้นหาสินค้าในสาขาอื่น",
-    //     cancelButtonText: "ยกเลิก"
-    //   }).then((result) => {
-    //     if (result.isConfirmed) {
-    //       Swal.fire({
-    //         title: "พบสินค้าในสาขาอื่น",
-    //         text: "มีสินค้าในสาขาเชียงใหม่",
-    //         icon: "success"
-    //       });
-    //   }
-    // });
-    //   return;
-    // }
-    if (check === false){
-      Swal.fire({
-      title: "ขออภัย สินค้าหมด",
-      text: "กรุณาเปลี่ยนสาขาในการรับสินค้า",
-      icon: "error"
-});
-return;
-    }
     if (deliveryType === 'pickup' && name && phone && selectedBranchId) {
-      onConfirm(name, '', phone, deliveryType,Number(selectedBranchId) , cardMessage);
+      onConfirm(name, '', phone, deliveryType, Number(selectedBranchId));
     } else if (deliveryType === 'delivery' && name && address && phone && selectedBranchId) {
-      onConfirm(name, address, phone, deliveryType, Number(selectedBranchId), cardMessage);
+      onConfirm(name, address, phone, deliveryType, Number(selectedBranchId));
     }
   };
 
-  const handleCheckStock = async (cart: CartItem[], selectedBranchId: number | ""): Promise<boolean> => {
-  const res = await fetch("http://localhost:3000/check-stocks", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ cart,selectedBranchId }),
-  });
-  const data = await res.json();
-  return data.is_available; // true / false
-}
   const isValid = deliveryType && name && phone && Number(selectedBranchId) && phone.length >= 9 && 
     (deliveryType === 'pickup' || (deliveryType === 'delivery' && address));
 
@@ -308,23 +271,6 @@ return;
                 />
               </div>
 
-              {/* Card Message (Optional) */}
-              <div>
-                <label className="block mb-2 text-gray-700 flex items-center gap-2">
-                  <MessageSquare className="w-5 h-5" style={{ color: '#62C4FF' }} />
-                  ข้อความบนการ์ดอวยพร (ถ้ามี)
-                </label>
-                <textarea
-                  value={cardMessage}
-                  onChange={(e) => setCardMessage(e.target.value)}
-                  placeholder="กรอกข้อความที่ต้องการให้แสดงบนการ์ด (ไม่บังคับ)"
-                  rows={3}
-                  className="w-full px-4 py-3 rounded-xl border-2 outline-none transition-all resize-none"
-                  style={{
-                    borderColor: cardMessage ? '#62C4FF' : '#e5e7eb',
-                  }}
-                />
-              </div>
             </div>
           )}
         </div>

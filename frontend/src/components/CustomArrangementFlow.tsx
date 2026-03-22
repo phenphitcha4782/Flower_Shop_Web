@@ -1,23 +1,18 @@
-import { ArrowLeft, ArrowRight, CheckCircle2, Sparkles } from 'lucide-react';
+import { ArrowLeft, ArrowRight, CheckCircle2 } from 'lucide-react';
 import type { CSSProperties, ChangeEvent } from 'react';
 import { useEffect, useMemo, useState } from 'react';
-import { getFlowerTypes, type FlowerType as DbFlowerType } from '../api/flower.api';
-import { getVases, type Vase } from '../api/vase.api';
+import { getCards, type CardOption } from '../api/card.api';
+import { getFillerFlowers, getMainFlowers, type FlowerType as DbFlowerType } from '../api/flower.api';
+import { getFoldingStyles, getMonetaryBouquets, type FoldingStyle, type MonetaryBouquet } from '../api/money-bouquet.api';
+import { getRibbonColorsByRibbon, getRibbons, type Ribbon, type RibbonColor } from '../api/ribbon.api';
+import { getVaseShapes, getVases, type Vase, type VaseShapeOption } from '../api/vase.api';
+import { getWrappingTypes, getWrappingsByType, type WrappingMaterial, type WrappingType } from '../api/wrapping.api';
 import { type CartCustomization, type MainFlowerItem, type ProductType } from '../App';
 import { ImageWithFallback } from './figma/ImageWithFallback';
 
 type BouquetKind = 'normal' | 'money-envelope';
-type VaseMaterial = 'glass' | 'ceramic' | 'clay';
-type VaseShape = 'cylinder' | 'bottle' | 'round';
-type WrapperPaper = 'kraft' | 'clear' | 'pastel';
-type KraftPattern = 'kraft-plain' | 'kraft-newsprint' | 'kraft-floral';
-type PastelColor = 'pastel-pink' | 'pastel-peach' | 'pastel-mint' | 'pastel-lilac';
-type ClearWrapStyle = 'clear-transparent' | 'clear-rainbow';
-type RibbonStyle = 'style-1' | 'style-2';
-type RibbonColor = 'blue' | 'red';
 type MoneyBillValue = 20 | 50 | 100 | 500 | 1000;
 type MoneyFoldStyle = 'fan' | 'rose' | 'heart' | 'star';
-type CardTemplate = 'classic' | 'minimal' | 'romantic';
 
 type FlowerChoice = {
   id: number | null;
@@ -57,46 +52,6 @@ const moneyPackages: Array<{ value: MoneyBillValue; label: string }> = [
   { value: 1000, label: 'ธนบัตร 1000 บาท' },
 ];
 
-const wrapperPaperOptions: Array<{ value: WrapperPaper; label: string }> = [
-  { value: 'kraft', label: 'กระดาษคราฟท์' },
-  { value: 'clear', label: 'กระดาษใส' },
-  { value: 'pastel', label: 'กระดาษสีพาสเทล' },
-];
-
-const kraftPatternOptions: Array<{ value: KraftPattern; label: string }> = [
-  { value: 'kraft-plain', label: 'ลายเรียบธรรมชาติ' },
-  { value: 'kraft-newsprint', label: 'ลายหนังสือพิมพ์' },
-  { value: 'kraft-floral', label: 'ลายดอกไม้' },
-];
-
-const pastelColorOptions: Array<{ value: PastelColor; label: string }> = [
-  { value: 'pastel-pink', label: 'ชมพูพาสเทล' },
-  { value: 'pastel-peach', label: 'พีชพาสเทล' },
-  { value: 'pastel-mint', label: 'เขียวมิ้นต์พาสเทล' },
-  { value: 'pastel-lilac', label: 'ม่วงไลแลคพาสเทล' },
-];
-
-const clearWrapStyleOptions: Array<{ value: ClearWrapStyle; label: string }> = [
-  { value: 'clear-transparent', label: 'สีใส' },
-  { value: 'clear-rainbow', label: 'สีรุ้ง' },
-];
-
-const ribbonStyleOptions: Array<{ value: RibbonStyle; label: string }> = [
-  { value: 'style-1', label: 'แบบที่ 1' },
-  { value: 'style-2', label: 'แบบที่ 2' },
-];
-
-const ribbonColorOptions: Array<{ value: RibbonColor; label: string }> = [
-  { value: 'blue', label: 'สีฟ้า' },
-  { value: 'red', label: 'สีแดง' },
-];
-
-const cardTemplateOptions: Array<{ value: CardTemplate; label: string }> = [
-  { value: 'classic', label: 'การ์ดคลาสสิก' },
-  { value: 'minimal', label: 'การ์ดมินิมอล' },
-  { value: 'romantic', label: 'การ์ดโรแมนติก' },
-];
-
 const bouquetImage = 'https://images.unsplash.com/photo-1599215966323-88d801b84771?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1080';
 const moneyBouquetImage = 'https://images.unsplash.com/photo-1616108637472-aee7a8f17787?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1080';
 const vaseImage = 'https://images.unsplash.com/photo-1646487134240-7262dfc8a830?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1080';
@@ -116,17 +71,9 @@ const unselectedChoiceStyle: CSSProperties = {
 const getChoiceStyle = (selected: boolean): CSSProperties =>
   selected ? selectedChoiceStyle : unselectedChoiceStyle;
 
-const mainFlowerUnitPrices: Record<string, number> = {
-  'กุหลาบ': 10,
-  'rose': 10,
-  'ทิวลิป': 18,
-  'tulip': 18,
-  'ลิลลี่': 25,
-  'lily': 25,
-  'กล้วยไม้': 20,
-  'orchid': 20,
-  'ทานตะวัน': 15,
-  'sunflower': 15,
+const parseFlowerPrice = (value: unknown) => {
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 0 ? n : 0;
 };
 
 const fillerFlowerUnitPrices: Record<string, number> = {
@@ -138,7 +85,13 @@ const fillerFlowerUnitPrices: Record<string, number> = {
 
 const normalizeLabel = (value: string) => value.trim().toLowerCase();
 
-const getMainFlowerUnitPrice = (label: string) => mainFlowerUnitPrices[normalizeLabel(label)] ?? 12;
+const inferBouquetKindFromProductName = (name: string): BouquetKind => {
+  const normalizedName = String(name || '').trim().toLowerCase();
+  if (normalizedName.includes('money') || normalizedName.includes('เงิน')) {
+    return 'money-envelope';
+  }
+  return 'normal';
+};
 
 const getFillerFlowerUnitPrice = (label: string) => fillerFlowerUnitPrices[normalizeLabel(label)] ?? 45;
 
@@ -154,32 +107,42 @@ const normalizeMoneyAmount = (amount: number, billValue: MoneyBillValue) => {
 
 export function CustomArrangementFlow({ productType, onBack, onComplete }: CustomArrangementFlowProps) {
   const [products, setProducts] = useState<Vase[]>([]);
-  const [flowerTypes, setFlowerTypes] = useState<DbFlowerType[]>([]);
+  const [vaseShapeOptions, setVaseShapeOptions] = useState<VaseShapeOption[]>([]);
+  const [cardOptions, setCardOptions] = useState<CardOption[]>([]);
+  const [ribbonOptions, setRibbonOptions] = useState<Ribbon[]>([]);
+  const [ribbonColorOptions, setRibbonColorOptions] = useState<RibbonColor[]>([]);
+  const [wrappingTypes, setWrappingTypes] = useState<WrappingType[]>([]);
+  const [wrappingMaterials, setWrappingMaterials] = useState<WrappingMaterial[]>([]);
+  const [mainFlowerTypes, setMainFlowerTypes] = useState<DbFlowerType[]>([]);
+  const [fillerFlowerTypes, setFillerFlowerTypes] = useState<DbFlowerType[]>([]);
+  const [monetaryBouquets, setMonetaryBouquets] = useState<MonetaryBouquet[]>([]);
+  const [foldingStyles, setFoldingStyles] = useState<FoldingStyle[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const [currentStep, setCurrentStep] = useState<number>(2);
 
   const [bouquetKind, setBouquetKind] = useState<BouquetKind | null>(null);
-  const [vaseMaterial, setVaseMaterial] = useState<VaseMaterial | null>(null);
-  const [vaseShape, setVaseShape] = useState<VaseShape | null>(null);
+  const [selectedBouquetProduct, setSelectedBouquetProduct] = useState<Vase | null>(null);
+  const [selectedVaseMaterial, setSelectedVaseMaterial] = useState<Vase | null>(null);
+  const [selectedVaseShape, setSelectedVaseShape] = useState<VaseShapeOption | null>(null);
 
   const [mainFlowers, setMainFlowers] = useState<MainFlowerSelection[]>([]);
   const [fillerFlower, setFillerFlower] = useState<FlowerChoice | null>(null);
 
-  const [wrapperPaper, setWrapperPaper] = useState<WrapperPaper | null>(null);
-  const [kraftPattern, setKraftPattern] = useState<KraftPattern | null>(null);
-  const [pastelColor, setPastelColor] = useState<PastelColor | null>(null);
-  const [clearWrapStyle, setClearWrapStyle] = useState<ClearWrapStyle | null>(null);
-  const [ribbonStyle, setRibbonStyle] = useState<RibbonStyle | null>(null);
-  const [ribbonColor, setRibbonColor] = useState<RibbonColor | null>(null);
+  const [selectedWrappingType, setSelectedWrappingType] = useState<WrappingType | null>(null);
+  const [selectedWrappingMaterial, setSelectedWrappingMaterial] = useState<WrappingMaterial | null>(null);
+  const [selectedRibbon, setSelectedRibbon] = useState<Ribbon | null>(null);
+  const [selectedRibbonColor, setSelectedRibbonColor] = useState<RibbonColor | null>(null);
 
   const [moneyPackage, setMoneyPackage] = useState<MoneyBillValue | null>(null);
   const [moneyAmount, setMoneyAmount] = useState<number | null>(null);
+  const [selectedMonetaryBouquetId, setSelectedMonetaryBouquetId] = useState<number | null>(null);
+  const [selectedFoldingStyleId, setSelectedFoldingStyleId] = useState<number | null>(null);
   const [moneyFoldStyle, setMoneyFoldStyle] = useState<MoneyFoldStyle | null>(null);
 
   const [hasCard, setHasCard] = useState<boolean | null>(null);
-  const [cardTemplate, setCardTemplate] = useState<CardTemplate | null>(null);
+  const [selectedCard, setSelectedCard] = useState<CardOption | null>(null);
   const [cardMessage, setCardMessage] = useState('');
 
   useEffect(() => {
@@ -189,13 +152,25 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
         setLoading(true);
         setError(null);
         const productTypeId = productType === 'bouquet' ? 1 : 2;
-        const [productRows, flowerRows] = await Promise.all([
+        const [productRows, mainFlowerRows, fillerFlowerRows, cardRows, wrappingTypeRows, ribbonRows, monetaryBouquetRows, foldingStyleRows] = await Promise.all([
           getVases(productTypeId),
-          getFlowerTypes(),
+          getMainFlowers(),
+          getFillerFlowers(),
+          getCards(),
+          getWrappingTypes(),
+          getRibbons(),
+          getMonetaryBouquets(),
+          getFoldingStyles(),
         ]);
         if (!mounted) return;
         setProducts(productRows);
-        setFlowerTypes(flowerRows);
+        setMainFlowerTypes(mainFlowerRows);
+        setFillerFlowerTypes(fillerFlowerRows);
+        setCardOptions(cardRows);
+        setWrappingTypes(wrappingTypeRows);
+        setRibbonOptions(ribbonRows);
+        setMonetaryBouquets(monetaryBouquetRows);
+        setFoldingStyles(foldingStyleRows);
       } catch (e: any) {
         if (!mounted) return;
         setError(e?.message ?? 'โหลดข้อมูลไม่สำเร็จ');
@@ -213,21 +188,25 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
   useEffect(() => {
     setCurrentStep(2);
     setBouquetKind(null);
-    setVaseMaterial(null);
-    setVaseShape(null);
+    setSelectedBouquetProduct(null);
+    setSelectedVaseMaterial(null);
+    setSelectedVaseShape(null);
+    setVaseShapeOptions([]);
     setMainFlowers([]);
     setFillerFlower(null);
-    setWrapperPaper(null);
-    setKraftPattern(null);
-    setPastelColor(null);
-    setClearWrapStyle(null);
-    setRibbonStyle(null);
-    setRibbonColor(null);
+    setSelectedWrappingType(null);
+    setSelectedWrappingMaterial(null);
+    setWrappingMaterials([]);
+    setSelectedRibbon(null);
+    setSelectedRibbonColor(null);
+    setRibbonColorOptions([]);
     setMoneyPackage(null);
     setMoneyAmount(null);
+    setSelectedMonetaryBouquetId(null);
+    setSelectedFoldingStyleId(null);
     setMoneyFoldStyle(null);
     setHasCard(null);
-    setCardTemplate(null);
+    setSelectedCard(null);
     setCardMessage('');
   }, [productType]);
 
@@ -238,13 +217,41 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
   const needsFlowerFlow = isBouquet || isVase;
 
   useEffect(() => {
+    let mounted = true;
+    (async () => {
+      if (!isVase || !selectedVaseMaterial?.product_id) {
+        setVaseShapeOptions([]);
+        setSelectedVaseShape(null);
+        return;
+      }
+
+      try {
+        const shapes = await getVaseShapes(selectedVaseMaterial.product_id);
+        if (!mounted) return;
+        setVaseShapeOptions(shapes);
+        setSelectedVaseShape((prev) =>
+          prev && shapes.some((shape) => shape.vase_id === prev.vase_id) ? prev : null
+        );
+      } catch {
+        if (!mounted) return;
+        setVaseShapeOptions([]);
+        setSelectedVaseShape(null);
+      }
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, [isVase, selectedVaseMaterial]);
+
+  useEffect(() => {
     if (!isBouquet) {
-      setWrapperPaper(null);
-      setKraftPattern(null);
-      setPastelColor(null);
-      setClearWrapStyle(null);
-      setRibbonStyle(null);
-      setRibbonColor(null);
+      setSelectedWrappingType(null);
+      setSelectedWrappingMaterial(null);
+      setWrappingMaterials([]);
+      setSelectedRibbon(null);
+      setSelectedRibbonColor(null);
+      setRibbonColorOptions([]);
     }
 
     if (!isMoneyBouquet) {
@@ -260,45 +267,86 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
   }, [isBouquet, isMoneyBouquet, needsFlowerFlow]);
 
   useEffect(() => {
-    if (wrapperPaper !== 'kraft') {
-      setKraftPattern(null);
-    }
-    if (wrapperPaper !== 'pastel') {
-      setPastelColor(null);
-    }
-    if (wrapperPaper !== 'clear') {
-      setClearWrapStyle(null);
-    }
-  }, [wrapperPaper]);
+    let mounted = true;
+    (async () => {
+      if (!selectedWrappingType?.wrapping_type_id) {
+        setWrappingMaterials([]);
+        setSelectedWrappingMaterial(null);
+        return;
+      }
+
+      try {
+        const rows = await getWrappingsByType(selectedWrappingType.wrapping_type_id);
+        if (!mounted) return;
+        setWrappingMaterials(rows);
+        setSelectedWrappingMaterial((prev) =>
+          prev && rows.some((item) => item.wrapping_id === prev.wrapping_id) ? prev : null
+        );
+      } catch {
+        if (!mounted) return;
+        setWrappingMaterials([]);
+        setSelectedWrappingMaterial(null);
+      }
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, [selectedWrappingType]);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      if (!selectedRibbon?.ribbon_id) {
+        setRibbonColorOptions([]);
+        setSelectedRibbonColor(null);
+        return;
+      }
+
+      try {
+        const rows = await getRibbonColorsByRibbon(selectedRibbon.ribbon_id);
+        if (!mounted) return;
+        setRibbonColorOptions(rows);
+        setSelectedRibbonColor((prev) =>
+          prev && rows.some((item) => item.ribbon_color_id === prev.ribbon_color_id) ? prev : null
+        );
+      } catch {
+        if (!mounted) return;
+        setRibbonColorOptions([]);
+        setSelectedRibbonColor(null);
+      }
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, [selectedRibbon]);
 
   const mainFlowerOptions = useMemo<FlowerChoice[]>(() => {
-    if (flowerTypes.length > 0) {
-      return flowerTypes.map((ft: DbFlowerType) => ({
+    if (mainFlowerTypes.length > 0) {
+      return mainFlowerTypes.map((ft: DbFlowerType) => ({
         id: ft.flower_id,
         label: ft.flower_name,
-        unitPrice: getMainFlowerUnitPrice(ft.flower_name),
+        unitPrice: parseFlowerPrice(ft.flower_price),
       }));
     }
     return [
-      { id: null, label: 'กุหลาบ', unitPrice: getMainFlowerUnitPrice('กุหลาบ') },
-      { id: null, label: 'ทิวลิป', unitPrice: getMainFlowerUnitPrice('ทิวลิป') },
-      { id: null, label: 'ลิลลี่', unitPrice: getMainFlowerUnitPrice('ลิลลี่') },
+      { id: null, label: 'กุหลาบ', unitPrice: 0 },
+      { id: null, label: 'ทิวลิป', unitPrice: 0 },
+      { id: null, label: 'ลิลลี่', unitPrice: 0 },
     ];
-  }, [flowerTypes]);
+  }, [mainFlowerTypes]);
 
   const fillerFlowerOptions = useMemo<FlowerChoice[]>(() => {
-    const merged: FlowerChoice[] = [
+    if (fillerFlowerTypes.length > 0) {
+      return fillerFlowerTypes.map((ft: DbFlowerType) => ({ id: ft.flower_id, label: ft.flower_name }));
+    }
+
+    return [
       { id: null, label: 'ดอกยิปโซ' },
       { id: null, label: 'ดอกคัตเตอร์' },
-      ...flowerTypes.map((ft: DbFlowerType) => ({ id: ft.flower_id, label: ft.flower_name })),
     ];
-    const seen = new Set<string>();
-    return merged.filter((item) => {
-      if (seen.has(item.label)) return false;
-      seen.add(item.label);
-      return true;
-    });
-  }, [flowerTypes]);
+  }, [fillerFlowerTypes]);
 
   const mainFlowerTotal = useMemo(
     () => mainFlowers.reduce((sum: number, flower: MainFlowerSelection) => sum + flower.count * flower.unitPrice, 0),
@@ -311,14 +359,19 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
   }, [fillerFlower]);
 
   const isMoneyAmountValid = useMemo(() => {
-    if (!moneyPackage || moneyAmount === null) return false;
-    return moneyAmount >= getMinimumMoneyAmount(moneyPackage) && moneyAmount % moneyPackage === 0;
-  }, [moneyAmount, moneyPackage]);
+    if (!selectedMonetaryBouquetId || moneyAmount === null) return false;
+    const selectedBouquet = monetaryBouquets.find(b => b.monetary_bouquet_id === selectedMonetaryBouquetId);
+    if (!selectedBouquet) return false;
+    const minAmount = selectedBouquet.monetary_value * Math.ceil(300 / selectedBouquet.monetary_value);
+    return moneyAmount >= minAmount && moneyAmount % selectedBouquet.monetary_value === 0;
+  }, [moneyAmount, selectedMonetaryBouquetId, monetaryBouquets]);
 
   const moneyNoteCount = useMemo(() => {
-    if (!isMoneyAmountValid || !moneyPackage || moneyAmount === null) return 0;
-    return moneyAmount / moneyPackage;
-  }, [isMoneyAmountValid, moneyAmount, moneyPackage]);
+    if (!isMoneyAmountValid || !selectedMonetaryBouquetId || moneyAmount === null) return 0;
+    const selectedBouquet = monetaryBouquets.find(b => b.monetary_bouquet_id === selectedMonetaryBouquetId);
+    if (!selectedBouquet) return 0;
+    return moneyAmount / selectedBouquet.monetary_value;
+  }, [isMoneyAmountValid, moneyAmount, selectedMonetaryBouquetId, monetaryBouquets]);
 
   const totalSteps = isMoneyBouquet ? 8 : 7;
   const isFlowerSelectionStep = (isMoneyBouquet && currentStep === 4) || (!isMoneyBouquet && currentStep === 3);
@@ -328,16 +381,17 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
   const isCardStep = currentStep === totalSteps;
 
   const estimatedPrice = useMemo(() => {
-    let total = productType === 'vase' ? 420 : 320;
+    let total = 0;
+
+    if (productType === 'bouquet') {
+      total += Number(selectedBouquetProduct?.price ?? 0);
+    }
 
     if (productType === 'bouquet' && bouquetKind) {
       total += mainFlowerTotal;
       total += fillerFlowerTotal;
-      if (wrapperPaper === 'kraft') total += 30;
-      if (wrapperPaper === 'clear') total += 40;
-      if (wrapperPaper === 'pastel') total += 50;
-      if (ribbonStyle) total += 25;
-      if (ribbonColor === 'red') total += 10;
+      total += Number(selectedWrappingMaterial?.wrapping_price ?? 0);
+      if (selectedRibbon) total += 25;
 
       if (bouquetKind === 'money-envelope') {
         if (moneyAmount) total += moneyAmount;
@@ -349,19 +403,14 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
     }
 
     if (productType === 'vase') {
-      if (vaseMaterial === 'glass') total += 120;
-      if (vaseMaterial === 'ceramic') total += 180;
-      if (vaseMaterial === 'clay') total += 140;
-
-      if (vaseShape === 'cylinder') total += 50;
-      if (vaseShape === 'bottle') total += 40;
-      if (vaseShape === 'round') total += 60;
+      total += Number(selectedVaseMaterial?.price ?? 0);
+      total += Number(selectedVaseShape?.vase_price ?? 0);
 
       total += mainFlowerTotal;
       total += fillerFlowerTotal;
     }
 
-    if (hasCard) total += 35;
+    if (hasCard) total += Number(selectedCard?.card_price ?? 0);
 
     return Math.round(total / 10) * 10;
   }, [
@@ -372,29 +421,44 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
     moneyAmount,
     moneyFoldStyle,
     productType,
-    ribbonColor,
-    ribbonStyle,
-    vaseMaterial,
-    vaseShape,
-    wrapperPaper,
+    selectedRibbon,
+    selectedBouquetProduct,
+    selectedCard,
+    selectedRibbonColor,
+    selectedWrappingMaterial,
+    selectedVaseMaterial,
+    selectedVaseShape,
   ]);
 
   const resolvedProduct = useMemo(() => {
     if (products.length === 0) return null;
+
+    if (productType === 'bouquet' && selectedBouquetProduct) {
+      return selectedBouquetProduct;
+    }
+
+    if (isVase && selectedVaseMaterial) {
+      return selectedVaseMaterial;
+    }
+
     return products.reduce((closest: Vase, current: Vase) => {
       const currentDiff = Math.abs(Number(current.price || 0) - estimatedPrice);
       const closestDiff = Math.abs(Number(closest.price || 0) - estimatedPrice);
       return currentDiff < closestDiff ? current : closest;
     }, products[0]);
-  }, [estimatedPrice, products]);
+  }, [estimatedPrice, isVase, productType, products, selectedBouquetProduct, selectedVaseMaterial]);
 
   const previewImage = useMemo(() => {
+    if (isVase) {
+      if (selectedVaseShape?.vase_img) return selectedVaseShape.vase_img;
+      if (selectedVaseMaterial?.product_img) return selectedVaseMaterial.product_img;
+    }
     const dbImage = (resolvedProduct as any)?.product_img as string | undefined;
     if (dbImage) return dbImage;
     if (isMoneyBouquet) return moneyBouquetImage;
     if (isVase) return vaseImage;
     return bouquetImage;
-  }, [isMoneyBouquet, isVase, resolvedProduct]);
+  }, [isMoneyBouquet, isVase, resolvedProduct, selectedVaseMaterial, selectedVaseShape]);
 
   const stepLabel = useMemo(() => {
     if (currentStep === 2) {
@@ -470,30 +534,26 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
   };
 
   const isWrapperConfigValid = () => {
-    if (!wrapperPaper) return false;
-    if (wrapperPaper === 'kraft') return kraftPattern !== null;
-    if (wrapperPaper === 'pastel') return pastelColor !== null;
-    if (wrapperPaper === 'clear') return clearWrapStyle !== null;
-    return false;
+    return selectedWrappingType !== null && selectedWrappingMaterial !== null;
   };
 
   const isCardConfigValid = () => {
     if (hasCard === null) return false;
-    if (hasCard) return cardTemplate !== null && cardMessage.trim().length > 0;
+    if (hasCard) return selectedCard !== null;
     return true;
   };
 
   const stepValid = (step: number) => {
     if (step === 2) {
       if (productType === 'bouquet') return bouquetKind !== null;
-      return vaseMaterial !== null && vaseShape !== null;
+      return selectedVaseMaterial !== null && selectedVaseShape !== null;
     }
     if (isMoneyBouquet) {
-      if (step === 3) return moneyPackage !== null && moneyFoldStyle !== null && isMoneyAmountValid;
+      if (step === 3) return selectedMonetaryBouquetId !== null && selectedFoldingStyleId !== null && moneyAmount !== null;
       if (step === 4) return mainFlowers.length <= 2; // flowers are optional for money bouquet
       if (step === 5) return isFlowerConfigValid();
       if (step === 6) return isWrapperConfigValid();
-      if (step === 7) return ribbonStyle !== null && ribbonColor !== null;
+      if (step === 7) return selectedRibbon !== null && selectedRibbonColor !== null;
       if (step === 8) return isCardConfigValid();
       return false;
     }
@@ -501,7 +561,7 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
     if (step === 3) return mainFlowers.length >= 1 && mainFlowers.length <= 2;
     if (step === 4) return isFlowerConfigValid();
     if (step === 5) return isWrapperConfigValid();
-    if (step === 6) return ribbonStyle !== null && ribbonColor !== null;
+    if (step === 6) return selectedRibbon !== null && selectedRibbonColor !== null;
     if (step === 7) return isCardConfigValid();
     return false;
   };
@@ -539,23 +599,25 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
 
     const customization: CartCustomization = {
       bouquetKind: bouquetKind ?? undefined,
-      vaseMaterial: vaseMaterial ?? undefined,
-      vaseShape: vaseShape ?? undefined,
+      vaseMaterial: selectedVaseMaterial?.product_name,
+      vaseShape: selectedVaseShape?.vase_name,
       mainFlowers: mainFlowerItems,
       mainFlower: mainFlowerItems.map((flower) => flower.name).join(', ') || undefined,
       fillerFlower: fillerFlower?.label,
-      wrapperPaper: wrapperPaper ?? undefined,
-      wrapperKraftPattern: kraftPattern ?? undefined,
-      wrapperPastelColor: pastelColor ?? undefined,
-      wrapperClearStyle: clearWrapStyle ?? undefined,
-      ribbonStyle: ribbonStyle ?? undefined,
-      ribbonColor: ribbonColor ?? undefined,
+      wrapperPaper: selectedWrappingType?.wrapping_type_name,
+      wrapperKraftPattern: selectedWrappingMaterial?.wrapping_name,
+      wrapperPastelColor: undefined,
+      wrapperClearStyle: undefined,
+      ribbonStyle: selectedRibbon?.ribbon_name,
+      ribbonColor: selectedRibbonColor?.ribbon_color_name,
       moneyPackage: moneyPackage ?? undefined,
       moneyAmount: moneyAmount ?? undefined,
+      monetaryBouquetId: selectedMonetaryBouquetId ?? undefined,
+      foldingStyleId: selectedFoldingStyleId ?? undefined,
       moneyFoldStyle: moneyFoldStyle ?? undefined,
       hasCard: hasCard ?? undefined,
-      cardTemplate: cardTemplate ?? undefined,
-      cardMessage: hasCard ? cardMessage.trim() : undefined,
+      cardTemplate: selectedCard?.card_name,
+      cardMessage: hasCard && cardMessage.trim() ? cardMessage.trim() : undefined,
     };
 
     onComplete({
@@ -613,19 +675,19 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
               {bouquetKind && (
                 <div className="flex items-start justify-between gap-4 py-1.5 text-base">
                   <span>ชนิดช่อ</span>
-                  <span className="font-medium text-right">{bouquetKind === 'normal' ? 'ช่อปกติ' : 'ช่อซองเงิน'}</span>
+                  <span className="font-medium text-right">{selectedBouquetProduct?.product_name || (bouquetKind === 'normal' ? 'ช่อปกติ' : 'ช่อซองเงิน')}</span>
                 </div>
               )}
-              {vaseMaterial && (
+              {selectedVaseMaterial && (
                 <div className="flex items-start justify-between gap-4 py-1.5 text-base">
                   <span>วัสดุแจกัน</span>
-                  <span className="font-medium text-right">{vaseMaterial === 'glass' ? 'แจกันแก้ว' : vaseMaterial === 'ceramic' ? 'แจกันเซรามิค' : 'แจกันดินเผา'}</span>
+                  <span className="font-medium text-right">{selectedVaseMaterial.product_name}</span>
                 </div>
               )}
-              {vaseShape && (
+              {selectedVaseShape && (
                 <div className="flex items-start justify-between gap-4 py-1.5 text-base">
                   <span>ทรงแจกัน</span>
-                  <span className="font-medium text-right">{vaseShape === 'cylinder' ? 'ทรงกระบอก' : vaseShape === 'bottle' ? 'ทรงขวด' : 'ทรงกลม'}</span>
+                  <span className="font-medium text-right">{selectedVaseShape.vase_name}</span>
                 </div>
               )}
               {mainFlowers.map((flower) => (
@@ -643,7 +705,7 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
               {moneyPackage && (
                 <div className="flex items-start justify-between gap-4 py-1.5 text-base">
                   <span>ธนบัตร</span>
-                  <span className="font-medium text-right">{moneyPackage} บาท</span>
+                  <span className="font-medium text-right">{monetaryBouquets.find(b => b.monetary_bouquet_id === selectedMonetaryBouquetId)?.monetary_bouquet_name || '-'}</span>
                 </div>
               )}
               {moneyAmount !== null && (
@@ -651,31 +713,32 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
                   <span>จำนวนเงิน</span>
                   <span className="font-medium text-right">
                     {moneyAmount.toLocaleString()} บาท
-                    {isMoneyAmountValid && moneyNoteCount > 0 ? ` (${moneyNoteCount} ใบ)` : ''}
                   </span>
                 </div>
               )}
-              {moneyFoldStyle && (
+              {selectedFoldingStyleId && (
                 <div className="flex items-start justify-between gap-4 py-1.5 text-base">
                   <span>วิธีพับ</span>
-                  <span className="font-medium text-right">{moneyFoldStyle === 'fan' ? 'พัด' : moneyFoldStyle === 'rose' ? 'กุหลาบ' : moneyFoldStyle === 'heart' ? 'หัวใจ' : 'ดาว'}</span>
+                  <span className="font-medium text-right">
+                    {foldingStyles.find(s => s.folding_style_id === selectedFoldingStyleId)?.folding_style_name || '-'}
+                    {foldingStyles.find(s => s.folding_style_id === selectedFoldingStyleId)?.folding_style_price ? ` (+฿${Number(foldingStyles.find(s => s.folding_style_id === selectedFoldingStyleId)?.folding_style_price ?? 0).toLocaleString()})` : ''}
+                  </span>
                 </div>
               )}
-              {wrapperPaper && (
+              {selectedWrappingType && (
                 <div className="flex items-start justify-between gap-4 py-1.5 text-base">
                   <span>กระดาษห่อ</span>
                   <span className="font-medium text-right">
-                    {wrapperPaper === 'kraft' ? 'คราฟท์' : wrapperPaper === 'clear' ? 'ใส' : 'พาสเทล'}
-                    {wrapperPaper === 'kraft' && kraftPattern && ` - ${kraftPatternOptions.find((item) => item.value === kraftPattern)?.label}`}
-                    {wrapperPaper === 'pastel' && pastelColor && ` - ${pastelColorOptions.find((item) => item.value === pastelColor)?.label}`}
-                    {wrapperPaper === 'clear' && clearWrapStyle && ` - ${clearWrapStyleOptions.find((item) => item.value === clearWrapStyle)?.label}`}
+                    {selectedWrappingType.wrapping_type_name}
+                    {selectedWrappingMaterial ? ` - ${selectedWrappingMaterial.wrapping_name}` : ''}
+                    {selectedWrappingMaterial ? ` (+฿${Number(selectedWrappingMaterial.wrapping_price ?? 0).toLocaleString()})` : ''}
                   </span>
                 </div>
               )}
-              {ribbonStyle && ribbonColor && (
+              {selectedRibbon && selectedRibbonColor && (
                 <div className="flex items-start justify-between gap-4 py-1.5 text-base">
                   <span>ริบบิ้น</span>
-                  <span className="font-medium text-right">{ribbonStyle === 'style-1' ? 'แบบที่ 1' : 'แบบที่ 2'} {ribbonColor === 'blue' ? 'สีฟ้า' : 'สีแดง'}</span>
+                  <span className="font-medium text-right">{selectedRibbon.ribbon_name} {selectedRibbonColor.ribbon_color_name}</span>
                 </div>
               )}
               {hasCard !== null && (
@@ -684,10 +747,16 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
                   <span className="font-medium text-right">{hasCard ? 'เพิ่มการ์ด' : 'ไม่เพิ่มการ์ด'}</span>
                 </div>
               )}
-              {hasCard && cardTemplate && (
+              {hasCard && selectedCard && (
                 <div className="flex items-start justify-between gap-4 py-1.5 text-base">
                   <span>แบบการ์ด</span>
-                  <span className="font-medium text-right">{cardTemplate === 'classic' ? 'คลาสสิก' : cardTemplate === 'minimal' ? 'มินิมอล' : 'โรแมนติก'}</span>
+                  <span className="font-medium text-right">{selectedCard.card_name} (+฿{Number(selectedCard.card_price ?? 0).toLocaleString()})</span>
+                </div>
+              )}
+              {hasCard && cardMessage.trim() && (
+                <div className="flex items-start justify-between gap-4 py-1.5 text-base">
+                  <span>ข้อความการ์ด</span>
+                  <span className="font-medium text-right">{cardMessage.trim()}</span>
                 </div>
               )}
               <div className="pt-4 mt-2 border-t border-[#D7E9F8] flex items-end justify-between gap-4 text-gray-900">
@@ -705,27 +774,30 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
               <div className="space-y-4">
                 <h3 className="text-gray-800">เลือกชนิดช่อ</h3>
                 <div className="grid grid-cols-2 gap-4">
-                  <button
-                    onClick={() => setBouquetKind('normal')}
-                    className="p-4 rounded-xl border-2 transition-all"
-                    style={getChoiceStyle(bouquetKind === 'normal')}
-                  >
-                    <div className="text-left">ช่อปกติ</div>
-                    <div className="text-sm mt-1" style={{ color: bouquetKind === 'normal' ? 'rgba(255,255,255,0.9)' : '#6b7280' }}>
-                      เลือกดอกไม้หลัก/แซม กระดาษ และริบบิ้น
-                    </div>
-                  </button>
-                  <button
-                    onClick={() => setBouquetKind('money-envelope')}
-                    className="p-4 rounded-xl border-2 transition-all"
-                    style={getChoiceStyle(bouquetKind === 'money-envelope')}
-                  >
-                    <div className="text-left">ช่อซองเงิน</div>
-                    <div className="text-sm mt-1" style={{ color: bouquetKind === 'money-envelope' ? 'rgba(255,255,255,0.9)' : '#6b7280' }}>
-                      เลือกธนบัตร จำนวนเงิน วิธีพับ และตกแต่งช่อเหมือนช่อปกติ
-                    </div>
-                  </button>
+                  {products.map((item) => {
+                    const inferredKind = inferBouquetKindFromProductName(item.product_name);
+                    const isSelected = selectedBouquetProduct?.product_id === item.product_id;
+                    return (
+                      <button
+                        key={item.product_id}
+                        onClick={() => {
+                          setSelectedBouquetProduct(item);
+                          setBouquetKind(inferredKind);
+                        }}
+                        className="p-4 rounded-xl border-2 transition-all"
+                        style={getChoiceStyle(isSelected)}
+                      >
+                        <div className="text-left">{item.product_name}</div>
+                        <div className="text-sm mt-1" style={{ color: isSelected ? 'rgba(255,255,255,0.9)' : '#6b7280' }}>
+                          ฿{Number(item.price ?? 0).toLocaleString()}
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
+                {products.length === 0 && (
+                  <p className="text-sm text-red-500">ไม่พบรายการช่อดอกไม้ในระบบ (product_type_id = 1)</p>
+                )}
               </div>
             )}
 
@@ -733,19 +805,21 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
               <div className="space-y-6">
                 <div>
                   <h3 className="text-gray-800 mb-3">เลือกวัสดุแจกัน</h3>
-                  <div className="grid grid-cols-3 gap-3">
-                    {[
-                      { key: 'glass', label: 'แจกันแก้ว' },
-                      { key: 'ceramic', label: 'แจกันเซรามิค' },
-                      { key: 'clay', label: 'แจกันดินเผา' },
-                    ].map((item) => (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {products.map((item) => (
                       <button
-                        key={item.key}
-                        onClick={() => setVaseMaterial(item.key as VaseMaterial)}
+                        key={item.product_id}
+                        onClick={() => {
+                          setSelectedVaseMaterial(item);
+                          setSelectedVaseShape(null);
+                        }}
                         className="p-3 rounded-xl border-2 transition-all"
-                        style={getChoiceStyle(vaseMaterial === item.key)}
+                        style={getChoiceStyle(selectedVaseMaterial?.product_id === item.product_id)}
                       >
-                        {item.label}
+                        <div className="text-left">{item.product_name}</div>
+                        <div className="text-sm text-left mt-1" style={{ color: selectedVaseMaterial?.product_id === item.product_id ? 'rgba(255,255,255,0.9)' : '#6b7280' }}>
+                          ฿{Number(item.price ?? 0).toLocaleString()}
+                        </div>
                       </button>
                     ))}
                   </div>
@@ -753,22 +827,28 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
 
                 <div>
                   <h3 className="text-gray-800 mb-3">เลือกลักษณะทรงแจกัน</h3>
-                  <div className="grid grid-cols-3 gap-3">
-                    {[
-                      { key: 'cylinder', label: 'ทรงกระบอก' },
-                      { key: 'bottle', label: 'ทรงขวด' },
-                      { key: 'round', label: 'ทรงกลม' },
-                    ].map((item) => (
-                      <button
-                        key={item.key}
-                        onClick={() => setVaseShape(item.key as VaseShape)}
-                        className="p-3 rounded-xl border-2 transition-all"
-                        style={getChoiceStyle(vaseShape === item.key)}
-                      >
-                        {item.label}
-                      </button>
-                    ))}
-                  </div>
+                  {selectedVaseMaterial ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {vaseShapeOptions.map((item) => (
+                        <button
+                          key={item.vase_id}
+                          onClick={() => setSelectedVaseShape(item)}
+                          className="p-3 rounded-xl border-2 transition-all"
+                          style={getChoiceStyle(selectedVaseShape?.vase_id === item.vase_id)}
+                        >
+                          <div className="text-left">{item.vase_name}</div>
+                          <div className="text-sm text-left mt-1" style={{ color: selectedVaseShape?.vase_id === item.vase_id ? 'rgba(255,255,255,0.9)' : '#6b7280' }}>
+                            ฿{Number(item.vase_price ?? 0).toLocaleString()}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-sm text-gray-500">กรุณาเลือกวัสดุแจกันก่อน</div>
+                  )}
+                  {selectedVaseMaterial && vaseShapeOptions.length === 0 && (
+                    <div className="text-sm text-red-500 mt-2">ไม่พบทรงแจกันสำหรับวัสดุที่เลือก</div>
+                  )}
                 </div>
               </div>
             )}
@@ -778,23 +858,24 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
                 <div>
                   <h3 className="text-gray-800 mb-3">เลือกชนิดธนบัตร</h3>
                   <div className="grid grid-cols-2 gap-3">
-                    {moneyPackages.map((pack) => (
+                    {monetaryBouquets.map((bouquet) => (
                       <button
-                        key={pack.value}
+                        key={bouquet.monetary_bouquet_id}
                         onClick={() => {
-                          setMoneyPackage(pack.value);
-                          setMoneyAmount((prev) => {
-                            const seedAmount = Math.max(prev ?? 300, 300);
-                            return normalizeMoneyAmount(seedAmount, pack.value);
-                          });
+                          setSelectedMonetaryBouquetId(bouquet.monetary_bouquet_id);
+                          const initialAmount = bouquet.monetary_value * Math.ceil(300 / bouquet.monetary_value);
+                          setMoneyAmount(initialAmount);
                         }}
                         className="p-3 rounded-xl border-2 transition-all text-left"
-                        style={getChoiceStyle(moneyPackage === pack.value)}
+                        style={getChoiceStyle(selectedMonetaryBouquetId === bouquet.monetary_bouquet_id)}
                       >
-                        {pack.label}
+                        {bouquet.monetary_bouquet_name}
                       </button>
                     ))}
                   </div>
+                  {monetaryBouquets.length === 0 && (
+                    <p className="text-sm text-red-500 mt-2">ไม่พบรายการธนบัตรในระบบ</p>
+                  )}
                 </div>
 
                 <div>
@@ -804,42 +885,39 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
                       <button
                         type="button"
                         onClick={() => {
-                          if (!moneyPackage) return;
-                          const minimum = getMinimumMoneyAmount(moneyPackage);
-                          setMoneyAmount((prev) => Math.max(minimum, (prev ?? minimum) - moneyPackage));
+                          const selectedBouquet = monetaryBouquets.find(b => b.monetary_bouquet_id === selectedMonetaryBouquetId);
+                          if (selectedBouquet) {
+                            const minAmount = selectedBouquet.monetary_value * Math.ceil(300 / selectedBouquet.monetary_value);
+                            setMoneyAmount((prev) => Math.max(minAmount, (prev ?? minAmount) - selectedBouquet.monetary_value));
+                          }
                         }}
                         className="w-12 h-12 rounded-xl border border-gray-300 bg-white text-gray-700 disabled:opacity-40"
-                        disabled={!moneyPackage}
+                        disabled={!selectedMonetaryBouquetId}
                       >
                         -
                       </button>
                       <div className="flex-1 text-center">
-                        <div className="text-sm text-gray-500 mb-1">เพิ่มหรือลดครั้งละ {moneyPackage ? `${moneyPackage} บาท` : '—'}</div>
+                        <div className="text-sm text-gray-500 mb-1">
+                          เพิ่มหรือลดครั้งละ {selectedMonetaryBouquetId && monetaryBouquets.find(b => b.monetary_bouquet_id === selectedMonetaryBouquetId) ? `${monetaryBouquets.find(b => b.monetary_bouquet_id === selectedMonetaryBouquetId)?.monetary_value} บาท` : '—'}
+                        </div>
                         <div className="text-2xl text-gray-900">฿{(moneyAmount ?? 0).toLocaleString()}</div>
                       </div>
                       <button
                         type="button"
                         onClick={() => {
-                          if (!moneyPackage) return;
-                          const minimum = getMinimumMoneyAmount(moneyPackage);
-                          setMoneyAmount((prev) => (prev ?? minimum) + moneyPackage);
+                          const selectedBouquet = monetaryBouquets.find(b => b.monetary_bouquet_id === selectedMonetaryBouquetId);
+                          if (selectedBouquet) {
+                            setMoneyAmount((prev) => (prev ?? selectedBouquet.monetary_value) + selectedBouquet.monetary_value);
+                          }
                         }}
                         className="w-12 h-12 rounded-xl border border-gray-300 bg-white text-gray-700 disabled:opacity-40"
-                        disabled={!moneyPackage}
+                        disabled={!selectedMonetaryBouquetId}
                       >
                         +
                       </button>
                     </div>
-                    {!moneyPackage && (
+                    {!selectedMonetaryBouquetId && (
                       <div className="text-xs text-amber-600 mt-3">กรุณาเลือกชนิดธนบัตรก่อนกำหนดจำนวนเงิน</div>
-                    )}
-                    {moneyPackage && moneyAmount !== null && !isMoneyAmountValid && (
-                      <div className="text-xs text-red-600 mt-3">
-                        ธนบัตร {moneyPackage} บาทไม่สามารถจัดเป็น {moneyAmount.toLocaleString()} บาทได้ กรุณาเลือกจำนวนเงินที่หารด้วย {moneyPackage} ลงตัว
-                      </div>
-                    )}
-                    {moneyPackage && moneyAmount !== null && isMoneyAmountValid && (
-                      <div className="text-xs text-emerald-700 mt-3">ใช้ธนบัตร {moneyPackage} บาท จำนวน {moneyNoteCount} ใบ</div>
                     )}
                   </div>
                 </div>
@@ -847,22 +925,23 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
                 <div>
                   <h3 className="text-gray-800 mb-3">เลือกวิธีพับเงิน</h3>
                   <div className="grid grid-cols-2 gap-3">
-                    {[
-                      { key: 'fan', label: 'พัด' },
-                      { key: 'rose', label: 'กุหลาบ' },
-                      { key: 'heart', label: 'หัวใจ' },
-                      { key: 'star', label: 'ดาว' },
-                    ].map((item) => (
+                    {foldingStyles.map((style) => (
                       <button
-                        key={item.key}
-                        onClick={() => setMoneyFoldStyle(item.key as MoneyFoldStyle)}
-                        className="p-3 rounded-xl border-2 transition-all"
-                        style={getChoiceStyle(moneyFoldStyle === item.key)}
+                        key={style.folding_style_id}
+                        onClick={() => setSelectedFoldingStyleId(style.folding_style_id)}
+                        className="p-3 rounded-xl border-2 transition-all text-left"
+                        style={getChoiceStyle(selectedFoldingStyleId === style.folding_style_id)}
                       >
-                        {item.label}
+                        <div>{style.folding_style_name}</div>
+                        {style.folding_style_price && (
+                          <div className="text-xs text-gray-500 mt-1">+฿{Number(style.folding_style_price).toLocaleString()}</div>
+                        )}
                       </button>
                     ))}
                   </div>
+                  {foldingStyles.length === 0 && (
+                    <p className="text-sm text-red-500 mt-2">ไม่พบรายการวิธีพับเงินในระบบ</p>
+                  )}
                 </div>
               </div>
             )}
@@ -893,7 +972,7 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
                                 {
                                   id: flower.id,
                                   label: flower.label,
-                                  unitPrice: flower.unitPrice ?? getMainFlowerUnitPrice(flower.label),
+                                  unitPrice: parseFlowerPrice(flower.unitPrice),
                                   count: 1,
                                 },
                               ];
@@ -905,7 +984,7 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
                         >
                           <div>{flower.label}</div>
                           <div className="text-xs mt-1" style={{ color: isSelected ? 'rgba(255,255,255,0.9)' : '#6b7280' }}>
-                            ฿{(flower.unitPrice ?? getMainFlowerUnitPrice(flower.label)).toLocaleString()} / ดอก
+                            ฿{parseFlowerPrice(flower.unitPrice).toLocaleString()} / ดอก
                           </div>
                         </button>
                       );
@@ -1031,69 +1110,46 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
               <div className="space-y-4">
                 <h3 className="text-gray-800">เลือกกระดาษห่อ</h3>
                 <div className="grid grid-cols-1 gap-3">
-                  {wrapperPaperOptions.map((paper) => (
+                  {wrappingTypes.map((typeItem) => (
                     <button
-                      key={paper.value}
-                      onClick={() => setWrapperPaper(paper.value)}
+                      key={typeItem.wrapping_type_id}
+                      onClick={() => {
+                        setSelectedWrappingType(typeItem);
+                        setSelectedWrappingMaterial(null);
+                      }}
                       className="p-4 rounded-xl border-2 transition-all text-left"
-                      style={getChoiceStyle(wrapperPaper === paper.value)}
+                      style={getChoiceStyle(selectedWrappingType?.wrapping_type_id === typeItem.wrapping_type_id)}
                     >
-                      {paper.label}
+                      {typeItem.wrapping_type_name}
                     </button>
                   ))}
                 </div>
 
-                {wrapperPaper === 'kraft' && (
-                  <div>
-                    <h3 className="text-gray-800 mb-3">เลือกลายกระดาษคราฟท์</h3>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      {kraftPatternOptions.map((option) => (
-                        <button
-                          key={option.value}
-                          onClick={() => setKraftPattern(option.value)}
-                          className="p-3 rounded-xl border-2 transition-all text-left"
-                          style={getChoiceStyle(kraftPattern === option.value)}
-                        >
-                          {option.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
+                {wrappingTypes.length === 0 && (
+                  <p className="text-sm text-red-500">ไม่พบประเภทกระดาษห่อในระบบ</p>
                 )}
 
-                {wrapperPaper === 'pastel' && (
+                {selectedWrappingType && (
                   <div>
-                    <h3 className="text-gray-800 mb-3">เลือกสีพาสเทล</h3>
+                    <h3 className="text-gray-800 mb-3">เลือกแบบกระดาษห่อ</h3>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      {pastelColorOptions.map((option) => (
+                      {wrappingMaterials.map((option) => (
                         <button
-                          key={option.value}
-                          onClick={() => setPastelColor(option.value)}
+                          key={option.wrapping_id}
+                          onClick={() => setSelectedWrappingMaterial(option)}
                           className="p-3 rounded-xl border-2 transition-all text-left"
-                          style={getChoiceStyle(pastelColor === option.value)}
+                          style={getChoiceStyle(selectedWrappingMaterial?.wrapping_id === option.wrapping_id)}
                         >
-                          {option.label}
+                          <div>{option.wrapping_name}</div>
+                          <div className="text-xs mt-1" style={{ color: selectedWrappingMaterial?.wrapping_id === option.wrapping_id ? 'rgba(255,255,255,0.9)' : '#6b7280' }}>
+                            ฿{Number(option.wrapping_price ?? 0).toLocaleString()}
+                          </div>
                         </button>
                       ))}
                     </div>
-                  </div>
-                )}
-
-                {wrapperPaper === 'clear' && (
-                  <div>
-                    <h3 className="text-gray-800 mb-3">เลือกโทนกระดาษใส</h3>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      {clearWrapStyleOptions.map((option) => (
-                        <button
-                          key={option.value}
-                          onClick={() => setClearWrapStyle(option.value)}
-                          className="p-3 rounded-xl border-2 transition-all text-left"
-                          style={getChoiceStyle(clearWrapStyle === option.value)}
-                        >
-                          {option.label}
-                        </button>
-                      ))}
-                    </div>
+                    {wrappingMaterials.length === 0 && (
+                      <p className="text-sm text-red-500 mt-2">ไม่พบรายการกระดาษห่อสำหรับประเภทที่เลือก</p>
+                    )}
                   </div>
                 )}
               </div>
@@ -1102,19 +1158,25 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
             {isRibbonStep && (
               <div className="space-y-6">
                 <div>
-                  <h3 className="text-gray-800 mb-3">เลือกรูปแบบริบบิ้น</h3>
+                  <h3 className="text-gray-800 mb-3">เลือกริบบิ้น</h3>
                   <div className="grid grid-cols-2 gap-3">
-                    {ribbonStyleOptions.map((style) => (
+                    {ribbonOptions.map((style) => (
                       <button
-                        key={style.value}
-                        onClick={() => setRibbonStyle(style.value)}
+                        key={style.ribbon_id}
+                        onClick={() => {
+                          setSelectedRibbon(style);
+                          setSelectedRibbonColor(null);
+                        }}
                         className="p-3 rounded-xl border-2 transition-all"
-                        style={getChoiceStyle(ribbonStyle === style.value)}
+                        style={getChoiceStyle(selectedRibbon?.ribbon_id === style.ribbon_id)}
                       >
-                        {style.label}
+                        {style.ribbon_name}
                       </button>
                     ))}
                   </div>
+                  {ribbonOptions.length === 0 && (
+                    <p className="text-sm text-red-500 mt-2">ไม่พบรายการริบบิ้นในระบบ</p>
+                  )}
                 </div>
 
                 <div>
@@ -1122,15 +1184,23 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
                   <div className="grid grid-cols-2 gap-3">
                     {ribbonColorOptions.map((color) => (
                       <button
-                        key={color.value}
-                        onClick={() => setRibbonColor(color.value)}
+                        key={color.ribbon_color_id}
+                        onClick={() => setSelectedRibbonColor(color)}
                         className="p-3 rounded-xl border-2 transition-all"
-                        style={getChoiceStyle(ribbonColor === color.value)}
+                        style={getChoiceStyle(selectedRibbonColor?.ribbon_color_id === color.ribbon_color_id)}
                       >
-                        {color.label}
+                        <div>{color.ribbon_color_name}</div>
+                        {color.hex && (
+                          <div className="text-xs mt-1" style={{ color: selectedRibbonColor?.ribbon_color_id === color.ribbon_color_id ? 'rgba(255,255,255,0.9)' : '#6b7280' }}>
+                            {color.hex}
+                          </div>
+                        )}
                       </button>
                     ))}
                   </div>
+                  {selectedRibbon && ribbonColorOptions.length === 0 && (
+                    <p className="text-sm text-red-500 mt-2">ไม่พบสีริบบิ้นสำหรับแบบที่เลือก</p>
+                  )}
                 </div>
               </div>
             )}
@@ -1138,7 +1208,7 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
             {isCardStep && (
               <div className="space-y-6">
                 <div>
-                  <h3 className="text-gray-800 mb-3">ต้องการเพิ่มข้อความบนการ์ดไหม</h3>
+                  <h3 className="text-gray-800 mb-3">ต้องการเพิ่มการ์ดไหม</h3>
                   <div className="grid grid-cols-2 gap-3">
                     <button
                       onClick={() => setHasCard(true)}
@@ -1148,7 +1218,11 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
                       เพิ่มการ์ด
                     </button>
                     <button
-                      onClick={() => setHasCard(false)}
+                      onClick={() => {
+                        setHasCard(false);
+                        setSelectedCard(null);
+                        setCardMessage('');
+                      }}
                       className="p-4 rounded-xl border-2 transition-all"
                       style={getChoiceStyle(hasCard === false)}
                     >
@@ -1161,31 +1235,40 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
                   <>
                     <div>
                       <h3 className="text-gray-800 mb-3">เลือกแบบการ์ด</h3>
-                      <div className="grid grid-cols-3 gap-3">
-                        {cardTemplateOptions.map((template) => (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {cardOptions.map((card) => (
                           <button
-                            key={template.value}
-                            onClick={() => setCardTemplate(template.value)}
-                            className="p-3 rounded-xl border-2 transition-all"
-                            style={getChoiceStyle(cardTemplate === template.value)}
+                            key={card.card_id}
+                            onClick={() => setSelectedCard(card)}
+                            className="p-3 rounded-xl border-2 transition-all text-left"
+                            style={getChoiceStyle(selectedCard?.card_id === card.card_id)}
                           >
-                            {template.label}
+                            <div>{card.card_name}</div>
+                            <div className="text-xs mt-1" style={{ color: selectedCard?.card_id === card.card_id ? 'rgba(255,255,255,0.9)' : '#6b7280' }}>
+                              ฿{Number(card.card_price ?? 0).toLocaleString()}
+                            </div>
                           </button>
                         ))}
                       </div>
+                      {cardOptions.length === 0 && (
+                        <div className="rounded-xl bg-amber-50 text-amber-700 p-3 text-sm mt-3">
+                          ไม่พบรายการการ์ดในระบบ
+                        </div>
+                      )}
                     </div>
 
                     <div>
-                      <label className="block mb-2 text-gray-800">ข้อความบนการ์ด</label>
+                      <label className="block mb-2 text-gray-800">ข้อความในการ์ด (ไม่บังคับ)</label>
                       <textarea
                         value={cardMessage}
                         onChange={(e) => setCardMessage(e.target.value)}
-                        rows={4}
-                        placeholder="พิมพ์ข้อความที่ต้องการใส่"
-                        className="w-full px-4 py-3 rounded-xl border-2 outline-none transition-all"
+                        rows={3}
+                        placeholder="พิมพ์ข้อความที่ต้องการใส่ในการ์ด"
+                        className="w-full px-4 py-3 rounded-xl border-2 outline-none transition-all resize-none"
                         style={{ borderColor: cardMessage.trim() ? '#62C4FF' : '#e5e7eb' }}
                       />
                     </div>
+
                   </>
                 )}
 
