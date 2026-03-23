@@ -18,6 +18,10 @@ interface RiderOrder {
   order_status?: string;
   delivery_status?: string;
   assignedTime: string;
+  member_level_id?: number | null;
+  member_level_name?: string | null;
+  florist_employee_id?: number | null;
+  florist_name?: string | null;
 }
 
 interface Employee {
@@ -31,12 +35,28 @@ export default function RiderDashboard() {
   const navigate = useNavigate();
 
   const [searchTerm, setSearchTerm] = useState('');
+  const [memberLevelFilter, setMemberLevelFilter] = useState('all');
+  const [fulfillmentFilter, setFulfillmentFilter] = useState<'all' | 'pickup' | 'delivery'>('all');
   const [activeTab, setActiveTab] = useState<'available' | 'tasks'>('available');
   const [availableOrders, setAvailableOrders] = useState<RiderOrder[]>([]);
   const [myTasks, setMyTasks] = useState<RiderOrder[]>([]);
   const [employee, setEmployee] = useState<Employee | null>(null);
   const [branchName, setBranchName] = useState('');
   const [loading, setLoading] = useState(false);
+
+  const normalizeMemberLevel = (memberLevelName?: string | null, memberLevelId?: number | null) => {
+    if (memberLevelName) return memberLevelName;
+    if (memberLevelId === 2) return 'Silver';
+    if (memberLevelId === 3) return 'Gold';
+    if (memberLevelId === 4) return 'Platinum';
+    return 'Member';
+  };
+
+  const inferFulfillmentMethod = (receiverAddressRaw?: string): 'pickup' | 'delivery' => {
+    const receiverAddress = String(receiverAddressRaw || '').trim();
+    if (!receiverAddress || receiverAddress === 'ที่ร้าน') return 'pickup';
+    return 'delivery';
+  };
 
   const fetchAvailableOrders = async (branchId: number) => {
     setLoading(true);
@@ -56,6 +76,10 @@ export default function RiderDashboard() {
         total: Number(order.total_amount) || 0,
         order_status: order.order_status,
         assignedTime: order.created_at ? new Date(order.created_at).toLocaleString('th-TH') : 'N/A',
+        member_level_id: order.member_level_id ?? null,
+        member_level_name: normalizeMemberLevel(order.member_level_name, order.member_level_id),
+        florist_employee_id: order.florist_employee_id ?? null,
+        florist_name: order.florist_name || null,
       }));
       setAvailableOrders(mapped);
     } catch (err) {
@@ -84,6 +108,10 @@ export default function RiderDashboard() {
         order_status: task.order_status,
         delivery_status: task.delivery_status,
         assignedTime: task.assigned_at ? new Date(task.assigned_at).toLocaleString('th-TH') : 'N/A',
+        member_level_id: task.member_level_id ?? null,
+        member_level_name: normalizeMemberLevel(task.member_level_name, task.member_level_id),
+        florist_employee_id: task.florist_employee_id ?? null,
+        florist_name: task.florist_name || null,
       }));
       setMyTasks(mapped);
     } catch (err) {
@@ -159,15 +187,25 @@ export default function RiderDashboard() {
     }
   };
 
-  const filteredAvailable = availableOrders.filter((order) =>
-    order.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    order.customerName.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredAvailable = availableOrders.filter((order) => {
+    const matchesSearch = order.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      order.customerName.toLowerCase().includes(searchTerm.toLowerCase());
+    const memberLevel = normalizeMemberLevel(order.member_level_name, order.member_level_id);
+    const matchesMemberLevel = memberLevelFilter === 'all' || memberLevel === memberLevelFilter;
+    const fulfillmentMethod = inferFulfillmentMethod(order.receiver_address);
+    const matchesFulfillment = fulfillmentFilter === 'all' || fulfillmentMethod === fulfillmentFilter;
+    return matchesSearch && matchesMemberLevel && matchesFulfillment;
+  });
 
-  const filteredTasks = myTasks.filter((task) =>
-    task.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    task.customerName.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredTasks = myTasks.filter((task) => {
+    const matchesSearch = task.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      task.customerName.toLowerCase().includes(searchTerm.toLowerCase());
+    const memberLevel = normalizeMemberLevel(task.member_level_name, task.member_level_id);
+    const matchesMemberLevel = memberLevelFilter === 'all' || memberLevel === memberLevelFilter;
+    const fulfillmentMethod = inferFulfillmentMethod(task.receiver_address);
+    const matchesFulfillment = fulfillmentFilter === 'all' || fulfillmentMethod === fulfillmentFilter;
+    return matchesSearch && matchesMemberLevel && matchesFulfillment;
+  });
 
   const stats = [
     { label: 'งานส่งที่รับได้', value: availableOrders.length, color: 'bg-blue-500', icon: Truck },
@@ -240,15 +278,37 @@ export default function RiderDashboard() {
             </button>
           </div>
 
-          <div className="mt-6 relative">
-            <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-            <input
-              type="text"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="ค้นหารหัสคำสั่งซื้อหรือชื่อลูกค้า"
-              className="w-full pl-12 pr-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none"
-            />
+          <div className="mt-6 grid grid-cols-1 md:grid-cols-4 gap-3">
+            <div className="md:col-span-2 relative">
+              <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="ค้นหารหัสคำสั่งซื้อหรือชื่อลูกค้า"
+                className="w-full pl-12 pr-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none"
+              />
+            </div>
+            <select
+              value={memberLevelFilter}
+              onChange={(e) => setMemberLevelFilter(e.target.value)}
+              className="px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none bg-white"
+            >
+              <option value="all">ระดับสมาชิกทั้งหมด</option>
+              <option value="Member">Member</option>
+              <option value="Silver">Silver</option>
+              <option value="Gold">Gold</option>
+              <option value="Platinum">Platinum</option>
+            </select>
+            <select
+              value={fulfillmentFilter}
+              onChange={(e) => setFulfillmentFilter(e.target.value as 'all' | 'pickup' | 'delivery')}
+              className="px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none bg-white"
+            >
+              <option value="all">การรับสินค้าทั้งหมด</option>
+              <option value="pickup">รับที่ร้าน</option>
+              <option value="delivery">จัดส่ง</option>
+            </select>
           </div>
         </div>
 
@@ -266,6 +326,9 @@ export default function RiderDashboard() {
                   <h3 className="text-xl text-blue-600 mb-1">{order.id}</h3>
                   <p className="text-gray-900">{order.customerName}</p>
                   <p className="text-sm text-gray-600 mb-3">{order.phone || '-'}</p>
+                  <p className="text-sm text-gray-600 mb-3">
+                    ระดับสมาชิก: <span className="font-medium text-blue-700">{normalizeMemberLevel(order.member_level_name, order.member_level_id)}</span>
+                  </p>
 
                   <div className="mb-4 p-4 bg-blue-50 rounded-lg">
                     <p className="text-sm text-gray-600 mb-1">ผู้รับ :</p>
@@ -280,6 +343,10 @@ export default function RiderDashboard() {
                   <div className="flex justify-between text-sm mb-4">
                     <span className="text-gray-600">วันที่สั่ง :</span>
                     <span className="text-gray-900">{order.assignedTime}</span>
+                  </div>
+                  <div className="flex justify-between gap-3 text-sm mb-4">
+                    <span className="text-gray-600">พนักงานจัดดอกไม้ :</span>
+                    <span className="text-gray-900 text-right">{order.florist_name || '-'}</span>
                   </div>
 
                   <div className="flex items-center justify-between pt-4 border-t-2 border-gray-100">
@@ -307,6 +374,9 @@ export default function RiderDashboard() {
                   <h3 className="text-xl text-blue-600 mb-1">{task.id}</h3>
                   <p className="text-gray-900">{task.customerName}</p>
                   <p className="text-sm text-gray-600 mb-3">{task.phone || '-'}</p>
+                  <p className="text-sm text-gray-600 mb-3">
+                    ระดับสมาชิก: <span className="font-medium text-blue-700">{normalizeMemberLevel(task.member_level_name, task.member_level_id)}</span>
+                  </p>
 
                   <div className="mb-4 p-4 bg-yellow-50 rounded-lg">
                     <p className="text-sm text-gray-600 mb-1">ผู้รับ :</p>
@@ -321,6 +391,10 @@ export default function RiderDashboard() {
                   <div className="flex justify-between text-sm mb-4">
                     <span className="text-gray-600">เวลาที่รับ :</span>
                     <span className="text-gray-900">{task.assignedTime}</span>
+                  </div>
+                  <div className="flex justify-between gap-3 text-sm mb-4">
+                    <span className="text-gray-600">พนักงานจัดดอกไม้ :</span>
+                    <span className="text-gray-900 text-right">{task.florist_name || '-'}</span>
                   </div>
 
                   <div className="flex items-center justify-between pt-4 border-t-2 border-gray-100">

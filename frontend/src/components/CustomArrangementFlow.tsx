@@ -575,7 +575,13 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
     return 2;
   };
 
+  const totalMainFlowerCount = mainFlowers.reduce((sum, flower) => sum + flower.count, 0);
+
   const isFlowerConfigValid = () => {
+    if (isVase) {
+      if (mainFlowers.length === 0) return false;
+      return totalMainFlowerCount >= 3;
+    }
     if (mainFlowers.length === 0) {
       return isMoneyBouquet || !!fillerFlower;
     }
@@ -1031,7 +1037,7 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
                                   id: flower.id,
                                   label: flower.label,
                                   unitPrice: parseFlowerPrice(flower.unitPrice),
-                                  count: 1,
+                                  count: isVase ? 3 : 1,
                                   imageUrl: flower.imageUrl,
                                 },
                               ];
@@ -1049,10 +1055,12 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
                       );
                     })}
                   </div>
-                                  {isMoneyBouquet
-                                    ? <p className="text-xs text-emerald-700 mt-2">ไม่บังคับ — สำหรับช่อเงินสามารถข้ามดอกไม้ได้ เลือกได้สูงสุด 2 ชนิด</p>
-                                    : <p className="text-xs text-gray-500 mt-2">ต้องเลือกอย่างน้อย 1 ชนิด และเลือกได้ไม่เกิน 2 ชนิด</p>
-                                  }
+                  {isMoneyBouquet
+                    ? <p className="text-xs text-emerald-700 mt-2">ไม่บังคับ — สำหรับช่อเงินสามารถข้ามดอกไม้ได้ เลือกได้สูงสุด 2 ชนิด</p>
+                    : isVase
+                      ? <p className="text-xs text-gray-500 mt-2">ต้องเลือกดอกไม้หลักอย่างน้อย 1 ชนิด และจำนวนรวมขั้นต่ำ 3 ดอก</p>
+                      : <p className="text-xs text-gray-500 mt-2">ต้องเลือกอย่างน้อย 1 ชนิด และเลือกได้ไม่เกิน 2 ชนิด</p>
+                  }
                 </div>
 
                 <div>
@@ -1098,6 +1106,11 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
             {isFlowerCountStep && (
               <div className="space-y-4">
                 <h3 className="text-gray-800">ระบุจำนวนดอกไม้หลักแต่ละชนิด</h3>
+                {isVase && (
+                  <div className={`rounded-xl border p-3 text-sm ${totalMainFlowerCount >= 3 ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-700'}`}>
+                    จำนวนดอกไม้หลักรวม {totalMainFlowerCount} ดอก (แจกันต้องมีอย่างน้อย 3 ดอก)
+                  </div>
+                )}
                 <div className="space-y-3">
                   {mainFlowers.map((flower) => (
                     <div key={`count-${flower.label}`} className="rounded-xl border border-gray-200 p-4 bg-gray-50">

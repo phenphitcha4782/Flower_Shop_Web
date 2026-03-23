@@ -1989,6 +1989,9 @@ app.get("/api/order/branches/:branchId", async (req, res) => {
     const customerNoteColumn = await getExistingColumnName(ordersTable, ['customer_note']);
     const customerNoteSelect = customerNoteColumn ? `o.${customerNoteColumn}` : 'NULL';
     const statusSql = statusFilter === 'all' ? '' : ' AND o.order_status = ?';
+    const shippingAvailabilitySql = statusFilter === 'shipping'
+      ? " AND NOT EXISTS (SELECT 1 FROM delivery d_active WHERE d_active.order_id = o.order_id AND d_active.delivery_status IN ('assigning', 'delivering'))"
+      : '';
     const params = statusFilter === 'all' ? [branchId] : [branchId, statusFilter];
 
     const [r] = await pool.query(
@@ -1999,6 +2002,8 @@ app.get("/api/order/branches/:branchId", async (req, res) => {
         o.customer_id,
         c.customer_name,
         c.phone,
+        c.member_level_id,
+        ml.member_level_name,
         oa.receiver_name,
         oa.receiver_phone,
         oa.receiver_address,
@@ -2007,9 +2012,16 @@ app.get("/api/order/branches/:branchId", async (req, res) => {
         o.created_at,
         ${customerNoteSelect} AS customer_note,
         oi.ordered_items,
+        p.employee_id AS verified_employee_id,
+        p.verified_at,
+        p.verified_result,
+        TRIM(CONCAT(COALESCE(verifier.name, ''), ' ', COALESCE(verifier.surname, ''))) AS verified_by_name,
+        prep.employee_id AS florist_employee_id,
+        TRIM(CONCAT(COALESCE(florist.name, ''), ' ', COALESCE(florist.surname, ''))) AS florist_name,
         pm.payment_method_name
       FROM ${ordersTable} o
       JOIN customer c ON o.customer_id = c.customer_id
+      LEFT JOIN member_level ml ON c.member_level_id = ml.member_level_id
       LEFT JOIN order_address oa ON oa.order_id = o.order_id
       LEFT JOIN (
         SELECT
@@ -2101,7 +2113,10 @@ app.get("/api/order/branches/:branchId", async (req, res) => {
       ) oi ON oi.order_id = o.order_id
       LEFT JOIN payment p ON o.order_id = p.order_id
       LEFT JOIN payment_method pm ON p.payment_method_id = pm.payment_method_id
-      WHERE o.branch_id = ?${statusSql}
+      LEFT JOIN employee verifier ON p.employee_id = verifier.employee_id
+      LEFT JOIN prepare prep ON prep.order_id = o.order_id
+      LEFT JOIN employee florist ON prep.employee_id = florist.employee_id
+      WHERE o.branch_id = ?${statusSql}${shippingAvailabilitySql}
       ORDER BY o.created_at DESC`,
       params
     );
@@ -2396,13 +2411,21 @@ app.get('/api/prepare/employee/:employeeId', async (req, res) => {
     const [rows] = await pool.query(`
       SELECT 
         o.order_id, o.order_code, o.customer_id, c.customer_name, c.phone,
+        c.member_level_id, ml.member_level_name,
         o.total_amount, o.created_at, oa.receiver_name, oa.receiver_phone, oa.receiver_address,
+        pay.employee_id AS verified_employee_id,
+        pay.verified_at,
+        pay.verified_result,
+        TRIM(CONCAT(COALESCE(verifier.name, ''), ' ', COALESCE(verifier.surname, ''))) AS verified_by_name,
         oi.ordered_items,
         p.prepare_id, p.employee_id, p.assigned_at, p.florist_photo_url, p.completed_at, p.prepare_status
       FROM orders o
       LEFT JOIN prepare p ON o.order_id = p.order_id
       LEFT JOIN customer c ON o.customer_id = c.customer_id
+      LEFT JOIN member_level ml ON c.member_level_id = ml.member_level_id
       LEFT JOIN order_address oa ON oa.order_id = o.order_id
+      LEFT JOIN payment pay ON pay.order_id = o.order_id
+      LEFT JOIN employee verifier ON pay.employee_id = verifier.employee_id
       LEFT JOIN (
         SELECT
           sc.order_id,
@@ -2505,9 +2528,9 @@ app.get('/api/prepare/employee/:employeeId', async (req, res) => {
 // Complete prepare task
 app.put('/api/prepare/:orderId', floristPhotoUpload.single('florist_photo'), async (req, res) => {
   try {
-    const { orderId } = req.params;
+    const orderId = Number(req.params.orderId);
     const { florist_photo_url } = req.body || {};
-    if (!orderId) {
+    if (!Number.isFinite(orderId) || orderId <= 0) {
       return res.status(400).json({ message: 'orderId is required' });
     }
 
@@ -2527,10 +2550,18 @@ app.put('/api/prepare/:orderId', floristPhotoUpload.single('florist_photo'), asy
       [finalPhotoUrl, completedAt, 'completed', orderId]
     );
 
-    // Update order status to 'shipping'
-    await pool.query('UPDATE orders SET order_status = ? WHERE order_id = ?', ['shipping', orderId]);
+    // Pickup orders should finish at success and not be forwarded to rider.
+    const [addressRows] = await pool.query(
+      'SELECT receiver_address FROM order_address WHERE order_id = ? LIMIT 1',
+      [orderId]
+    );
+    const receiverAddress = String(addressRows?.[0]?.receiver_address || '').trim();
+    const isPickup = receiverAddress === 'ที่ร้าน';
+    const nextOrderStatus = isPickup ? 'success' : 'shipping';
 
-    return res.json({ success: true, changedRows: result.affectedRows || 0 });
+    await pool.query('UPDATE orders SET order_status = ? WHERE order_id = ?', [nextOrderStatus, orderId]);
+
+    return res.json({ success: true, changedRows: result.affectedRows || 0, order_status: nextOrderStatus });
   } catch (err) {
     console.error('❌ Complete prepare error:', err);
     return res.status(500).json({ message: 'Server error', detail: err.message });
@@ -2602,13 +2633,19 @@ app.get('/api/delivery/employee/:employeeId', async (req, res) => {
       `
       SELECT
         o.order_id, o.order_code, o.customer_id, c.customer_name, c.phone,
+        c.member_level_id, ml.member_level_name,
         o.total_amount, o.created_at, oa.receiver_name, oa.receiver_phone, oa.receiver_address,
         oi.ordered_items,
-        d.delivery_id, d.employee_id, d.assigned_at, d.rider_photo_url, d.completed_at, d.delivery_status
+        d.delivery_id, d.employee_id, d.assigned_at, d.rider_photo_url, d.completed_at, d.delivery_status,
+        prep.employee_id AS florist_employee_id,
+        TRIM(CONCAT(COALESCE(florist.name, ''), ' ', COALESCE(florist.surname, ''))) AS florist_name
       FROM orders o
       LEFT JOIN delivery d ON o.order_id = d.order_id
       LEFT JOIN customer c ON o.customer_id = c.customer_id
+      LEFT JOIN member_level ml ON c.member_level_id = ml.member_level_id
       LEFT JOIN order_address oa ON oa.order_id = o.order_id
+      LEFT JOIN prepare prep ON prep.order_id = o.order_id
+      LEFT JOIN employee florist ON prep.employee_id = florist.employee_id
       LEFT JOIN (
         SELECT
           sc.order_id,

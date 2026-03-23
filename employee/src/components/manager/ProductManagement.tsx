@@ -1,26 +1,31 @@
-import { ArrowLeft, Edit, Plus, Search, Trash2 } from 'lucide-react';
+import { ArrowLeft, Edit, Save, Search } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ImageWithFallback } from '../figma/ImageWithFallback';
 
+type ProductItem = {
+  id: string;
+  name: string;
+  category: string;
+  source: string;
+  price: number;
+  stockLabel: string;
+  importDate: string;
+  expiryDate: string;
+  status: string;
+  image: string;
+};
+
 export default function ProductManagement() {
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState('');
-  const [showAddModal, setShowAddModal] = useState(false);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
-  const [products, setProducts] = useState<Array<{
-    id: string;
-    name: string;
-    category: string;
-    source: string;
-    price: number;
-    stockLabel: string;
-    importDate: string;
-    expiryDate: string;
-    status: string;
-    image: string;
-  }>>([]);
+  const [products, setProducts] = useState([] as ProductItem[]);
+  const [editingProductId, setEditingProductId] = useState(null as string | null);
+  const [editStockLabel, setEditStockLabel] = useState('');
+  const [editImportDate, setEditImportDate] = useState('');
+  const [editExpiryDate, setEditExpiryDate] = useState('');
 
   const formatDate = (value: any) => {
     if (!value) return '-';
@@ -167,7 +172,7 @@ export default function ProductManagement() {
 
   const filteredProducts = useMemo(() => {
     const keyword = searchTerm.trim().toLowerCase();
-    return products.filter((product) => {
+    return products.filter((product: ProductItem) => {
       if (!keyword) return true;
       return (
         product.name.toLowerCase().includes(keyword) ||
@@ -189,9 +194,44 @@ export default function ProductManagement() {
 
   const sourceOrder = ['product', 'vase', 'card', 'flower', 'filler_flower', 'wrapping', 'ribbon'];
 
+  const openEditModal = (product: ProductItem) => {
+    setEditingProductId(product.id);
+    const stockAsNumber = Number.parseInt(String(product.stockLabel), 10);
+    setEditStockLabel(Number.isNaN(stockAsNumber) ? '' : String(stockAsNumber));
+    setEditImportDate(product.importDate !== '-' ? product.importDate : '');
+    setEditExpiryDate(product.expiryDate !== '-' ? product.expiryDate : '');
+  };
+
+  const closeEditModal = () => {
+    setEditingProductId(null);
+    setEditStockLabel('');
+    setEditImportDate('');
+    setEditExpiryDate('');
+  };
+
+  const saveProductEdit = () => {
+    if (!editingProductId) return;
+    const parsedStock = Number.parseInt(editStockLabel, 10);
+    const normalizedStockLabel = Number.isNaN(parsedStock) ? '-' : String(parsedStock);
+
+    setProducts((prev: ProductItem[]) =>
+      prev.map((item: ProductItem) => {
+        if (item.id !== editingProductId) return item;
+        const nextItem: ProductItem = {
+          ...item,
+          stockLabel: normalizedStockLabel,
+        };
+        nextItem.importDate = editImportDate || '-';
+        nextItem.expiryDate = editExpiryDate || '-';
+        return nextItem;
+      })
+    );
+    closeEditModal();
+  };
+
   const groupedProducts = useMemo(() => {
     const groups: Record<string, typeof filteredProducts> = {};
-    filteredProducts.forEach((item) => {
+    filteredProducts.forEach((item: ProductItem) => {
       if (!groups[item.source]) groups[item.source] = [];
       groups[item.source].push(item);
     });
@@ -231,14 +271,8 @@ export default function ProductManagement() {
                 className="w-full pl-12 pr-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none"
               />
             </div>
-            <button
-              onClick={() => setShowAddModal(true)}
-              className="px-6 py-3 bg-indigo-500 text-white rounded-xl hover:bg-indigo-600 transition-colors flex items-center gap-2"
-            >
-              <Plus className="w-5 h-5" />
-              <span>เพิ่มสินค้า</span>
-            </button>
           </div>
+          <p className="text-sm text-gray-500 mt-3">Branch Manager สามารถแก้ไขได้เฉพาะจำนวนสต๊อก และวันที่นำเข้า/วันหมดอายุ (เฉพาะดอกไม้หลักและดอกไม้แซม)</p>
         </div>
 
         {loading && (
@@ -254,7 +288,7 @@ export default function ProductManagement() {
         )}
 
         <div className="space-y-6">
-          {groupedProducts.map((group) => (
+          {groupedProducts.map((group: { source: string; items: ProductItem[] }) => (
             <section key={group.source} className="bg-white rounded-xl shadow-md p-5">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg text-gray-900">{sourceLabelMap[group.source] || group.source}</h3>
@@ -271,7 +305,6 @@ export default function ProductManagement() {
                     <col style={{ width: '120px' }} />
                     <col style={{ width: '120px' }} />
                     <col style={{ width: '72px' }} />
-                    <col style={{ width: '72px' }} />
                   </colgroup>
                   <thead>
                     <tr className="border-b border-gray-200 text-xs text-gray-500">
@@ -282,7 +315,6 @@ export default function ProductManagement() {
                       <th className="py-2 text-right font-medium">วันที่นำเข้า</th>
                       <th className="py-2 text-right font-medium">วันหมดอายุ</th>
                       <th className="py-2 text-center font-medium">แก้ไข</th>
-                      <th className="py-2 text-center font-medium">ลบสินค้า</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -308,17 +340,10 @@ export default function ProductManagement() {
                         <td className="py-2 text-center">
                           <button
                             title="แก้ไขรายการ"
+                            onClick={() => openEditModal(product)}
                             className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-100 hover:text-blue-700 transition-colors"
                           >
                             <Edit className="w-4 h-4" />
-                          </button>
-                        </td>
-                        <td className="py-2 text-center">
-                          <button
-                            title="ลบรายการ"
-                            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-red-200 bg-red-50 text-red-600 hover:bg-red-100 hover:text-red-700 transition-colors"
-                          >
-                            <Trash2 className="w-4 h-4" />
                           </button>
                         </td>
                       </tr>
@@ -331,84 +356,102 @@ export default function ProductManagement() {
         </div>
       </div>
 
-      {/* Add Product Modal */}
-      {showAddModal && (
+      {/* Edit Product Modal (frontend-only) */}
+      {editingProductId && (() => {
+        const editingProduct = products.find((item) => item.id === editingProductId) || null;
+        if (!editingProduct) return null;
+
+        return (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl p-8 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <h3 className="text-2xl mb-6 text-gray-900">เพิ่มสินค้าใหม่</h3>
+            <h3 className="text-2xl mb-1 text-gray-900">แก้ไขสินค้า</h3>
+            <p className="text-sm text-gray-600 mb-6">{editingProduct.name} ({sourceLabelMap[editingProduct.source] || editingProduct.source})</p>
             <div className="space-y-4">
               <div>
                 <label className="block mb-2 text-gray-800">ชื่อสินค้า</label>
                 <input
                   type="text"
-                  placeholder="กรอกชื่อสินค้า"
+                  value={editingProduct.name}
+                  readOnly
                   className="w-full p-4 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none"
                 />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block mb-2 text-gray-800">หมวดหมู่</label>
-                  <select className="w-full p-4 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none">
-                    <option>ช่อดอกไม้</option>
-                    <option>แจกัน</option>
-                  </select>
+                  <input
+                    type="text"
+                    value={editingProduct.category}
+                    readOnly
+                    className="w-full p-4 border-2 border-gray-200 rounded-xl bg-gray-50"
+                  />
                 </div>
                 <div>
-                  <label className="block mb-2 text-gray-800">ราคา</label>
+                  <label className="block mb-2 text-gray-800">ราคาขาย</label>
                   <input
                     type="number"
-                    placeholder="0.00"
-                    className="w-full p-4 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none"
+                    value={editingProduct.price}
+                    readOnly
+                    className="w-full p-4 border-2 border-gray-200 rounded-xl bg-gray-50"
                   />
+                  <p className="text-xs text-gray-500 mt-1">Branch Manager ไม่สามารถแก้ราคาขายได้</p>
                 </div>
               </div>
               <div>
                 <label className="block mb-2 text-gray-800">จำนวนสต็อก</label>
                 <input
                   type="number"
-                  placeholder="0"
+                  value={editStockLabel}
+                  onChange={(e) => setEditStockLabel(e.target.value)}
+                  min={0}
+                  step={1}
+                  inputMode="numeric"
+                  placeholder="เช่น 120"
                   className="w-full p-4 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none"
                 />
               </div>
-              <div>
-                <label className="block mb-2 text-gray-800">คำอธิบาย</label>
-                <textarea
-                  rows={3}
-                  placeholder="กรอกคำอธิบายสินค้า"
-                  className="w-full p-4 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none resize-none"
-                />
-              </div>
-              <div>
-                <label className="block mb-2 text-gray-800">รูปภาพสินค้า</label>
-                <div className="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center">
-                  <input type="file" className="hidden" id="product-image" />
-                  <label htmlFor="product-image" className="cursor-pointer">
-                    <Plus className="w-12 h-12 text-gray-400 mx-auto mb-2" />
-                    <p className="text-gray-600">คลิกเพื่ออัปโหลดรูปภาพ</p>
-                  </label>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block mb-2 text-gray-800">วันที่นำเข้า</label>
+                  <input
+                    type="date"
+                    value={editImportDate}
+                    onChange={(e) => setEditImportDate(e.target.value)}
+                    className="w-full p-4 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block mb-2 text-gray-800">วันหมดอายุ</label>
+                  <input
+                    type="date"
+                    value={editExpiryDate}
+                    onChange={(e) => setEditExpiryDate(e.target.value)}
+                    className="w-full p-4 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none"
+                  />
                 </div>
               </div>
             </div>
             <div className="flex gap-3 mt-6">
               <button
-                onClick={() => setShowAddModal(false)}
+                onClick={closeEditModal}
                 className="flex-1 py-3 bg-gray-200 text-gray-700 rounded-xl hover:bg-gray-300 transition-colors"
               >
                 ยกเลิก
               </button>
               <button
-                onClick={() => {
-                  alert('Product added!');
-                  setShowAddModal(false);
-                }}
+                onClick={saveProductEdit}
                 className="flex-1 py-3 bg-indigo-500 text-white rounded-xl hover:bg-indigo-600 transition-colors"
               >
-                เพิ่มสินค้า
+                <span className="inline-flex items-center gap-2">
+                  <Save className="w-4 h-4" />
+                  บันทึกการแก้ไข
+                </span>
               </button>
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
     </div>
   );
 }

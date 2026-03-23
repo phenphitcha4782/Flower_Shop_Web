@@ -12,6 +12,7 @@ interface Order {
   date: string;
   paymentMethod: string;
   memberLevel?: string;
+  fulfillmentMethod: 'pickup' | 'delivery';
 }
 
 interface OrderItem {
@@ -47,12 +48,21 @@ interface Employee {
   employee_id?: number;
 }
 
+const inferFulfillmentMethod = (receiverAddressRaw?: string): 'pickup' | 'delivery' => {
+  const receiverAddress = String(receiverAddressRaw || '').trim();
+  if (!receiverAddress || receiverAddress === 'ที่ร้าน') {
+    return 'pickup';
+  }
+  return 'delivery';
+};
+
 export default function CashierDashboard() {
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterStatus, setFilterStatus] = useState('all');
+  const [filterStatus, setFilterStatus] = useState('waiting');
   const [filterMemberLevel, setFilterMemberLevel] = useState('all');
   const [filterPaymentMethod, setFilterPaymentMethod] = useState('all');
+  const [filterFulfillmentMethod, setFilterFulfillmentMethod] = useState('all');
   const [orders, setOrders] = useState<Order[]>([]);
   const [employee, setEmployee] = useState<Employee | null>(null);
   const [branchName, setBranchName] = useState('');
@@ -74,7 +84,8 @@ export default function CashierDashboard() {
         status: order.order_status,
         date: order.created_at ? new Date(order.created_at).toLocaleString('th-TH') : 'N/A',
         paymentMethod: order.payment_method_name || 'Unknown',
-        memberLevel: order.membership_level || order.member_level || 'member'
+        memberLevel: order.member_level_name || 'Member',
+        fulfillmentMethod: inferFulfillmentMethod(order.receiver_address)
       }));
       setOrders(mappedOrders);
     } catch (err) {
@@ -115,22 +126,8 @@ export default function CashierDashboard() {
 
   }, []);
 
-  const handleViewDetails = async (orderId: string) => {
-    setStatusError('');
-    setLoadingDetail(true);
-    try {
-      const response = await fetch(`http://localhost:3000/api/order/${orderId}`);
-      if (!response.ok) {
-        console.error('Failed to fetch order details');
-        return;
-      }
-      const data = await response.json();
-      setExpandedOrder(data);
-    } catch (err) {
-      console.error('Error fetching order details:', err);
-    } finally {
-      setLoadingDetail(false);
-    }
+  const handleViewDetails = (orderId: string) => {
+    navigate(`/cashier/order/${orderId}`);
   };
 
 
@@ -226,6 +223,18 @@ export default function CashierDashboard() {
         icon: XCircle,
         label: 'ปฎิเสธ'
       },
+      'preparing': {
+        bg: 'bg-blue-100',
+        text: 'text-indigo-800',
+        icon: Clock,
+        label: 'กำลังจัดเตรียม'
+      },
+      'delivered': {
+        bg: 'bg-purple-100',
+        text: 'text-purple-800',
+        icon: CheckCircle,
+        label: 'กำลังจัดส่ง'
+      },
       'cancelled': {
         bg: 'bg-red-100',
         text: 'text-red-800',
@@ -254,16 +263,28 @@ export default function CashierDashboard() {
     const matchesStatus = filterStatus === 'all' || order.status === filterStatus;
     const matchesMemberLevel = filterMemberLevel === 'all' || order.memberLevel === filterMemberLevel;
     const matchesPaymentMethod = filterPaymentMethod === 'all' || order.paymentMethod === filterPaymentMethod;
-    return matchesSearch && matchesStatus && matchesMemberLevel && matchesPaymentMethod;
+    const matchesFulfillmentMethod = filterFulfillmentMethod === 'all' || order.fulfillmentMethod === filterFulfillmentMethod;
+    return matchesSearch && matchesStatus && matchesMemberLevel && matchesPaymentMethod && matchesFulfillmentMethod;
+  });
+
+  const sortedFilteredOrders = [...filteredOrders].sort((a, b) => {
+    const aIsWaiting = String(a.status || '').toLowerCase() === 'waiting' ? 0 : 1;
+    const bIsWaiting = String(b.status || '').toLowerCase() === 'waiting' ? 0 : 1;
+    return aIsWaiting - bIsWaiting;
   });
 
   const expandedOrderStatus = String(expandedOrder?.order?.order_status || '').toLowerCase();
   const canTakeAction = expandedOrderStatus === 'waiting';
 
+  const normalizedOrders = orders.map((order) => String(order.status || '').toLowerCase());
+
   const stats = [
-    { label: 'กำลังรอการยืนยัน', value: orders.filter(o => o.status === 'waiting').length, color: 'bg-yellow-500' },
-    { label: 'ยืนยันสำเร็จ', value: orders.filter(o => o.status === 'received').length, color: 'bg-green-500' },
-    { label: 'จำนวนคำสั่งซื้อ', value: orders.length, color: 'bg-blue-500' },
+    { label: 'กำลังรอการยืนยัน', value: normalizedOrders.filter((status) => status === 'waiting').length, color: 'bg-yellow-500' },
+    { label: 'ยืนยันสำเร็จ', value: normalizedOrders.filter((status) => status === 'received').length, color: 'bg-green-500' },
+    { label: 'กำลังเตรียมสินค้า', value: normalizedOrders.filter((status) => status === 'preparing' || status === 'peparing').length, color: 'bg-indigo-500' },
+    { label: 'กำลังจัดส่ง', value: normalizedOrders.filter((status) => status === 'shipping').length, color: 'bg-cyan-500' },
+    { label: 'จัดส่งสำเร็จ', value: normalizedOrders.filter((status) => status === 'delivered' || status === 'success').length, color: 'bg-blue-500' },
+    { label: 'ยกเลิกคำสั่งซื้อ', value: normalizedOrders.filter((status) => status === 'cancelled' || status === 'canceled' || status === 'rejected').length, color: 'bg-red-500' },
   ];
 
   return (
@@ -294,7 +315,7 @@ export default function CashierDashboard() {
 
       <div className="container mx-auto px-4 py-8">
         {/* Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 mb-8">
           {stats.map((stat, index) => (
             <div key={index} className="bg-white rounded-xl shadow-md p-6">
               <div className="flex items-center gap-4">
@@ -322,7 +343,7 @@ export default function CashierDashboard() {
                 className="w-full pl-12 pr-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none"
               />
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
               <select
                 value={filterStatus}
                 onChange={(e) => setFilterStatus(e.target.value)}
@@ -330,7 +351,11 @@ export default function CashierDashboard() {
               >
                 <option value="all">สถานะทั้งหมด</option>
                 <option value="waiting">กำลังรอ</option>
+                <option value="cancelled">ยกเลิก</option>
                 <option value="received">ยืนยันเรียบร้อย</option>
+                <option value="preparing">กำลังจัดเตรียม</option>
+                <option value="shipping">กำลังจัดส่ง</option>
+                <option value="delivered">จัดส่งสำเร็จ</option>
               </select>
               <select
                 value={filterMemberLevel}
@@ -338,10 +363,10 @@ export default function CashierDashboard() {
                 className="px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none bg-white"
               >
                 <option value="all">สมาชิกทั้งหมด</option>
-                <option value="member">Member</option>
-                <option value="silver">Silver</option>
-                <option value="gold">Gold</option>
-                <option value="platinum">Platinum</option>
+                <option value="Member">Member</option>
+                <option value="Silver">Silver</option>
+                <option value="Gold">Gold</option>
+                <option value="Platinum">Platinum</option>
               </select>
               <select
                 value={filterPaymentMethod}
@@ -352,6 +377,15 @@ export default function CashierDashboard() {
                 <option value="Cash">เงินสด</option>
                 <option value="Online Payment">ชำระเงินออนไลน์</option>
                 <option value="Credit Card">บัตรเครดิต</option>
+              </select>
+              <select
+                value={filterFulfillmentMethod}
+                onChange={(e) => setFilterFulfillmentMethod(e.target.value)}
+                className="px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none bg-white"
+              >
+                <option value="all">การรับสินค้าทั้งหมด</option>
+                <option value="pickup">รับที่ร้าน</option>
+                <option value="delivery">จัดส่ง</option>
               </select>
             </div>
           </div>
@@ -366,13 +400,14 @@ export default function CashierDashboard() {
                   <th className="px-6 py-4 text-left text-sm text-gray-600">รหัสคำสั่งซื้อ</th>
                   <th className="px-6 py-4 text-left text-sm text-gray-600">ชื่อลูกค้า</th>
                   <th className="px-6 py-4 text-left text-sm text-gray-600">จำนวน</th>
+                  <th className="px-6 py-4 text-left text-sm text-gray-600">การรับสินค้า</th>
                   <th className="px-6 py-4 text-left text-sm text-gray-600">สถานะ</th>
                   <th className="px-6 py-4 text-left text-sm text-gray-600">วันที่สั่งซื้อ</th>
                   <th className="px-6 py-4 text-left text-sm text-gray-600">เพิ่มเติม</th>
                 </tr>
               </thead>
               <tbody>
-                {filteredOrders.map((order) => (
+                {sortedFilteredOrders.map((order) => (
                   <tr key={order.id} className="border-b border-gray-100 hover:bg-blue-50 transition-colors">
                     <td className="px-6 py-4">
                       <span className="text-blue-600">{order.id}</span>
@@ -381,10 +416,18 @@ export default function CashierDashboard() {
                       <div>
                         <p className="text-gray-900">{order.customerName}</p>
                         <p className="text-sm text-gray-500">{order.phone}</p>
+                        <p className="text-sm text-gray-600">
+                          ระดับสมาชิก: <span className="font-medium text-blue-700">{order.memberLevel || 'Member'}</span>
+                        </p>
                       </div>
                     </td>
                     <td className="px-6 py-4 text-gray-900">
                       ฿{order.total.toFixed(2)}
+                    </td>
+                    <td className="px-6 py-4 text-sm">
+                      <span className={`inline-flex items-center px-3 py-1 rounded-full ${order.fulfillmentMethod === 'delivery' ? 'bg-cyan-100 text-cyan-800' : 'bg-emerald-100 text-emerald-800'}`}>
+                        {order.fulfillmentMethod === 'delivery' ? 'จัดส่ง' : 'รับที่ร้าน'}
+                      </span>
                     </td>
                     <td className="px-6 py-4">
                       {getStatusBadge(order.status)}

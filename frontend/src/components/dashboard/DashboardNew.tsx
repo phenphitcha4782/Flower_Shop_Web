@@ -272,7 +272,7 @@ function StatCardsNew({ loyaltyPoints = 0, stats }: StatCardsProps) {
         icon={<ShoppingBag size={24} />}
         label="คำสั่งซื้อทั้งหมด"
         value={totalOrders.toLocaleString()}
-        subtitle={`สำเร็จแล้ว ${completedOrders.toLocaleString()} รายการ`}
+        subtitle="นับเฉพาะคำสั่งซื้อสำเร็จ"
       />
       <StatCard
         icon={<Wallet size={24} />}
@@ -370,8 +370,9 @@ function mapOrderStatusLabel(statusRaw: string) {
   if (status === 'received') return 'รับคำสั่งซื้อ';
   if (status === 'preparing') return 'กำลังจัดเตรียม';
   if (status === 'shipping') return 'กำลังจัดส่ง';
-  if (status === 'delivered' || status === 'success') return 'จัดส่งสำเร็จ';
-  if (status === 'cancelled') return 'ยกเลิก';
+  if (status === 'delivered') return 'จัดส่งสำเร็จ';
+  if (status === 'success') return 'พร้อมรับสินค้า';
+  if (status === 'cancelled' || status === 'canceled') return 'ยกเลิก';
   return statusRaw || '-';
 }
 
@@ -381,7 +382,9 @@ function mapOrderStatusClassName(statusRaw: string) {
   if (status === 'received') return 'order-status-badge received';
   if (status === 'preparing') return 'order-status-badge preparing';
   if (status === 'shipping') return 'order-status-badge shipping';
-  if (status === 'delivered' || status === 'success') return 'order-status-badge delivered';
+  if (status === 'delivered') return 'order-status-badge delivered';
+  if (status === 'success') return 'order-status-badge success';
+  if (status === 'cancelled' || status === 'canceled') return 'order-status-badge cancelled';
   return 'order-status-badge';
 }
 
@@ -427,7 +430,7 @@ function getOrderItemDetailLines(item: DashboardOrder['items'][number]): string[
 }
 
 function SimpleOrdersTabNew({ orders }: SimpleOrdersTabProps) {
-  const [statusFilter, setStatusFilter] = useState<'all' | 'waiting' | 'received' | 'preparing' | 'shipping' | 'delivered'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'waiting' | 'received' | 'preparing' | 'shipping' | 'delivered' | 'success' | 'cancelled'>('all');
   const [activeRatingOrderCode, setActiveRatingOrderCode] = useState<string | null>(null);
   const [productRating, setProductRating] = useState(5);
   const [deliveryRating, setDeliveryRating] = useState(5);
@@ -472,8 +475,8 @@ function SimpleOrdersTabNew({ orders }: SimpleOrdersTabProps) {
   const filteredOrders = orders.filter((order) => {
     if (statusFilter === 'all') return true;
     const normalizedStatus = String(order.orderStatus || '').toLowerCase();
-    if (statusFilter === 'delivered') {
-      return normalizedStatus === 'delivered' || normalizedStatus === 'success';
+    if (statusFilter === 'cancelled') {
+      return normalizedStatus === 'cancelled' || normalizedStatus === 'canceled';
     }
     return normalizedStatus === statusFilter;
   });
@@ -496,7 +499,7 @@ function SimpleOrdersTabNew({ orders }: SimpleOrdersTabProps) {
           id="orderStatusFilter"
           className="orders-filter-select"
           value={statusFilter}
-          onChange={(event) => setStatusFilter(event.target.value as 'all' | 'waiting' | 'received' | 'preparing' | 'shipping' | 'delivered')}
+          onChange={(event) => setStatusFilter(event.target.value as 'all' | 'waiting' | 'received' | 'preparing' | 'shipping' | 'delivered' | 'success' | 'cancelled')}
         >
           <option value="all">ทั้งหมด</option>
           <option value="waiting">กำลังรอ</option>
@@ -504,6 +507,8 @@ function SimpleOrdersTabNew({ orders }: SimpleOrdersTabProps) {
           <option value="preparing">กำลังจัดเตรียม</option>
           <option value="shipping">กำลังจัดส่ง</option>
           <option value="delivered">จัดส่งสำเร็จ</option>
+          <option value="success">พร้อมรับสินค้า</option>
+          <option value="cancelled">ยกเลิก</option>
         </select>
       </div>
 
@@ -1005,7 +1010,7 @@ export function DashboardNew({
         });
 
         setStats({
-          totalOrders: Number(fetchedStats.total_orders || 0),
+          totalOrders: Number(fetchedStats.completed_orders || 0),
           completedOrders: Number(fetchedStats.completed_orders || 0),
           totalSpending,
           averageOrderValue: Number(fetchedStats.average_order_value || 0),

@@ -1,4 +1,4 @@
-import { CheckCircle, Clock, Home, MapPin, Package, Phone, Search, Truck, User } from 'lucide-react';
+import { CheckCircle, Clock, Home, MapPin, Package, Phone, Search, Truck, User, XCircle } from 'lucide-react';
 import { useState } from 'react';
 import Swal from 'sweetalert2';
 import { OrderData } from '../App';
@@ -9,12 +9,53 @@ interface OrderTrackingProps {
   onBackToHome: () => void;
 }
 
-type OrderStatus = 'waiting' | 'received' | 'preparing' | 'shipping' | 'delivered';
+type OrderStatus = 'waiting' | 'received' | 'preparing' | 'shipping' | 'delivered' | 'success' | 'cancelled';
+type FulfillmentType = 'pickup' | 'delivery';
 
 export function OrderTracking({ savedOrders, onBackToHome }: OrderTrackingProps) {
   const [searchOrderId, setSearchOrderId] = useState('');
   const [currentOrder, setCurrentOrder] = useState<any>(null);
   const [orderStatus, setOrderStatus] = useState<OrderStatus>('waiting');
+
+  const inferFulfillmentType = (receiverAddressRaw?: string): FulfillmentType => {
+    const receiverAddress = String(receiverAddressRaw || '').trim();
+    if (!receiverAddress || receiverAddress === 'ที่ร้าน') return 'pickup';
+    return 'delivery';
+  };
+
+  const mapStatusByFulfillmentType = (statusRaw: string, fulfillmentType: FulfillmentType): OrderStatus => {
+    const status = String(statusRaw || '').toLowerCase();
+
+    if (status === 'cancelled' || status === 'canceled') {
+      return 'cancelled';
+    }
+
+    if (fulfillmentType === 'pickup') {
+      if (status === 'success' || status === 'delivered' || status === 'shipping') {
+        return 'success';
+      }
+      if (status === 'received' || status === 'preparing' || status === 'waiting') {
+        return status;
+      }
+      return 'waiting';
+    }
+
+    if (
+      status === 'waiting' ||
+      status === 'received' ||
+      status === 'preparing' ||
+      status === 'shipping' ||
+      status === 'delivered'
+    ) {
+      return status;
+    }
+
+    if (status === 'success') {
+      return 'delivered';
+    }
+
+    return 'waiting';
+  };
 
   const handleSearch = async () => {
     const data = await searchOrder(searchOrderId);
@@ -23,17 +64,8 @@ export function OrderTracking({ savedOrders, onBackToHome }: OrderTrackingProps)
       setCurrentOrder(data);
       console.log("currentOrder", data);
       const nextStatus = String(data.order.order_status || '').toLowerCase();
-      if (
-        nextStatus === 'waiting' ||
-        nextStatus === 'received' ||
-        nextStatus === 'preparing' ||
-        nextStatus === 'shipping' ||
-        nextStatus === 'delivered'
-      ) {
-        setOrderStatus(nextStatus as OrderStatus);
-      } else {
-        setOrderStatus('waiting');
-      }
+      const fulfillmentType = inferFulfillmentType(data?.order?.receiver_address);
+      setOrderStatus(mapStatusByFulfillmentType(nextStatus, fulfillmentType));
     } else {
       setCurrentOrder(null);
       NotFoundAlert();
@@ -59,13 +91,23 @@ export function OrderTracking({ savedOrders, onBackToHome }: OrderTrackingProps)
     });
   }
 
-  const statusSteps = [
+  const deliveryStatusSteps = [
     { status: 'waiting', label: 'กำลังรอยืนยัน', icon: Clock },
     { status: 'received', label: 'รับคำสั่งซื้อ', icon: Package },
     { status: 'preparing', label: 'กำลังจัดเตรียม', icon: Clock },
     { status: 'shipping', label: 'กำลังจัดส่ง', icon: Truck },
     { status: 'delivered', label: 'จัดส่งสำเร็จ', icon: CheckCircle },
   ];
+
+  const pickupStatusSteps = [
+    { status: 'waiting', label: 'กำลังรอยืนยัน', icon: Clock },
+    { status: 'received', label: 'รับคำสั่งซื้อ', icon: Package },
+    { status: 'preparing', label: 'กำลังจัดเตรียม', icon: Clock },
+    { status: 'success', label: 'พร้อมรับสินค้า', icon: CheckCircle },
+  ];
+
+  const currentFulfillmentType: FulfillmentType = inferFulfillmentType(currentOrder?.order?.receiver_address);
+  const statusSteps = currentFulfillmentType === 'pickup' ? pickupStatusSteps : deliveryStatusSteps;
 
   const getStatusIndex = (status: OrderStatus): number => {
     const index = statusSteps.findIndex(step => step.status === status);
@@ -159,54 +201,61 @@ export function OrderTracking({ savedOrders, onBackToHome }: OrderTrackingProps)
             {/* Status Timeline */}
             <div className="bg-white rounded-2xl p-6 shadow-md mb-6">
               <h3 className="mb-6 text-gray-800">สถานะคำสั่งซื้อ</h3>
-              
-              <div className="relative">
-                {/* Progress Line */}
-                <div className="absolute top-6 left-0 w-full h-1 bg-gray-200">
-                  <div
-                    className="h-full transition-all duration-500"
-                    style={{
-                      backgroundColor: '#AEE6FF',
-                      width: `${(currentStatusIndex / (statusSteps.length - 1)) * 100}%`,
-                    }}
-                  />
+
+              {orderStatus === 'cancelled' ? (
+                <div className="rounded-xl border border-red-200 bg-red-50 p-4 flex items-center gap-3">
+                  <XCircle className="w-6 h-6 text-red-500 flex-shrink-0" />
+                  <p className="text-red-700 font-medium">สินค้าถูกยกเลิก</p>
                 </div>
+              ) : (
+                <div className="relative">
+                  {/* Progress Line */}
+                  <div className="absolute top-6 left-0 w-full h-1 bg-gray-200">
+                    <div
+                      className="h-full transition-all duration-500"
+                      style={{
+                        backgroundColor: '#AEE6FF',
+                        width: `${(currentStatusIndex / (statusSteps.length - 1)) * 100}%`,
+                      }}
+                    />
+                  </div>
 
-                {/* Status Steps */}
-                <div className="relative flex justify-between">
-                  {statusSteps.map((step, index) => {
-                    const StepIcon = step.icon;
-                    const isCompleted = index <= currentStatusIndex;
-                    const isCurrent = index === currentStatusIndex;
+                  {/* Status Steps */}
+                  <div className="relative flex justify-between">
+                    {statusSteps.map((step, index) => {
+                      const StepIcon = step.icon;
+                      const isCompleted = index <= currentStatusIndex;
+                      const isCurrent = index === currentStatusIndex;
 
-                    return (
-                      <div key={step.status} className="flex flex-col items-center">
-                        <div
-                          className="w-12 h-12 rounded-full flex items-center justify-center mb-2 transition-all border-2"
-                          style={{
-                            backgroundColor: isCompleted ? '#AEE6FF' : 'white',
-                            borderColor: isCompleted ? '#AEE6FF' : '#e5e7eb',
-                          }}
-                        >
-                          <StepIcon
-                            className="w-6 h-6"
-                            style={{ color: isCompleted ? 'white' : '#9ca3af' }}
-                          />
+                      return (
+                        <div key={step.status} className="flex flex-col items-center">
+                          <div
+                            className="w-12 h-12 rounded-full flex items-center justify-center mb-2 transition-all border-2"
+                            style={{
+                              backgroundColor: isCompleted ? '#AEE6FF' : 'white',
+                              borderColor: isCompleted ? '#AEE6FF' : '#e5e7eb',
+                            }}
+                          >
+                            <StepIcon
+                              className="w-6 h-6"
+                              style={{ color: isCompleted ? 'white' : '#9ca3af' }}
+                            />
+                          </div>
+                          <p
+                            className="text-xs text-center max-w-20"
+                            style={{
+                              color: isCurrent ? '#AEE6FF' : isCompleted ? '#374151' : '#9ca3af',
+                              fontWeight: isCurrent ? '600' : '400'
+                            }}
+                          >
+                            {step.label}
+                          </p>
                         </div>
-                        <p
-                          className="text-xs text-center max-w-20"
-                          style={{ 
-                            color: isCurrent ? '#AEE6FF' : isCompleted ? '#374151' : '#9ca3af',
-                            fontWeight: isCurrent ? '600' : '400'
-                          }}
-                        >
-                          {step.label}
-                        </p>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
 
             {/* Order Information */}

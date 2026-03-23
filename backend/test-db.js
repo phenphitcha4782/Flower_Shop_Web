@@ -3,15 +3,16 @@ const mysql = require('mysql2/promise');
 
 (async function(){
   const pool = mysql.createPool({
-    host: process.env.DB_HOST || 'localhost',
-    user: process.env.DB_USER || 'root',
-    password: process.env.DB_PASSWORD || '',
-    database: process.env.DB_NAME || 'flower_shop_db',
+    host: '111.223.52.156',
+    user: 'zp12915_admin',
+    password: 'flowershop131519Q',
+    database: 'zp12915_flower_shop_db',
+    port: 2222,
     waitForConnections: true,
     connectionLimit: 2
   });
 
-  try {
+  try {S
     const [rows] = await pool.query('SELECT * FROM `province`');
     console.log('Connection OK:', rows);
     // optional: check branches table

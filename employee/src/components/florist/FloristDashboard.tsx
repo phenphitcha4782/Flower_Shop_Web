@@ -24,6 +24,11 @@ interface Order {
   phone: string;
   receiver_address?: string;
   branch_id?: number;
+  member_level_id?: number | null;
+  member_level_name?: string | null;
+  verified_employee_id?: number | null;
+  verified_by_name?: string | null;
+  verified_at?: string | null;
 }
 
 interface PrepareTask extends Order {
@@ -62,6 +67,8 @@ export default function FloristDashboard() {
   const navigate = useNavigate();
   
   const [searchTerm, setSearchTerm] = useState('');
+  const [memberLevelFilter, setMemberLevelFilter] = useState('all');
+  const [fulfillmentFilter, setFulfillmentFilter] = useState<'all' | 'pickup' | 'delivery'>('all');
   const [activeTab, setActiveTab] = useState<'available' | 'tasks'>('available');
   const [availableOrders, setAvailableOrders] = useState<Order[]>([]);
   const [myTasks, setMyTasks] = useState<PrepareTask[]>([]);
@@ -81,6 +88,20 @@ export default function FloristDashboard() {
     } catch (err) {
       console.error('Failed to load order detail items:', err);
     }
+  };
+
+  const normalizeMemberLevel = (memberLevelName?: string | null, memberLevelId?: number | null) => {
+    if (memberLevelName) return memberLevelName;
+    if (memberLevelId === 2) return 'Silver';
+    if (memberLevelId === 3) return 'Gold';
+    if (memberLevelId === 4) return 'Platinum';
+    return 'Member';
+  };
+
+  const inferFulfillmentMethod = (receiverAddressRaw?: string): 'pickup' | 'delivery' => {
+    const receiverAddress = String(receiverAddressRaw || '').trim();
+    if (!receiverAddress || receiverAddress === 'ที่ร้าน') return 'pickup';
+    return 'delivery';
   };
 
   // Fetch available orders (status: received)
@@ -109,7 +130,12 @@ export default function FloristDashboard() {
           total: Number(order.total_amount) || 0,
           total_amount: order.total_amount,
           phone: order.phone || '',
-          receiver_address: order.receiver_address || 'ไม่พบที่อยู่จัดส่ง'
+          receiver_address: order.receiver_address || 'ไม่พบที่อยู่จัดส่ง',
+          member_level_id: order.member_level_id ?? null,
+          member_level_name: normalizeMemberLevel(order.member_level_name, order.member_level_id),
+          verified_employee_id: order.verified_employee_id ?? null,
+          verified_by_name: order.verified_by_name || null,
+          verified_at: order.verified_at || null,
         }));
       setAvailableOrders(mappedOrders);
     } catch (err) {
@@ -149,7 +175,12 @@ export default function FloristDashboard() {
           total: Number(task.total_amount) || 0,
           total_amount: task.total_amount,
           phone: task.phone || '',
-          receiver_address: task.receiver_address || 'ไม่พบที่อยู่จัดส่ง'
+          receiver_address: task.receiver_address || 'ไม่พบที่อยู่จัดส่ง',
+          member_level_id: task.member_level_id ?? null,
+          member_level_name: normalizeMemberLevel(task.member_level_name, task.member_level_id),
+          verified_employee_id: task.verified_employee_id ?? null,
+          verified_by_name: task.verified_by_name || null,
+          verified_at: task.verified_at || null,
         }));
       setMyTasks(mappedTasks);
     } catch (err) {
@@ -289,7 +320,7 @@ export default function FloristDashboard() {
         title: 'สำเร็จ',
         text: 'บันทึกการจัดเตรียมเรียบร้อย',
         timer: 1500,
-        showConfirmAccount: false
+        showConfirmButton: false
       });
 
       // Reload both lists
@@ -310,15 +341,25 @@ export default function FloristDashboard() {
     }
   };
 
-  const filteredAvailableOrders = availableOrders.filter(order =>
-    order.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    order.customerName.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredAvailableOrders = availableOrders.filter(order => {
+    const matchesSearch = order.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      order.customerName.toLowerCase().includes(searchTerm.toLowerCase());
+    const memberLevel = normalizeMemberLevel(order.member_level_name, order.member_level_id);
+    const matchesMemberLevel = memberLevelFilter === 'all' || memberLevel === memberLevelFilter;
+    const fulfillmentMethod = inferFulfillmentMethod(order.receiver_address);
+    const matchesFulfillment = fulfillmentFilter === 'all' || fulfillmentMethod === fulfillmentFilter;
+    return matchesSearch && matchesMemberLevel && matchesFulfillment;
+  });
 
-  const filteredMyTasks = myTasks.filter(task =>
-    task.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    task.customerName.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredMyTasks = myTasks.filter(task => {
+    const matchesSearch = task.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      task.customerName.toLowerCase().includes(searchTerm.toLowerCase());
+    const memberLevel = normalizeMemberLevel(task.member_level_name, task.member_level_id);
+    const matchesMemberLevel = memberLevelFilter === 'all' || memberLevel === memberLevelFilter;
+    const fulfillmentMethod = inferFulfillmentMethod(task.receiver_address);
+    const matchesFulfillment = fulfillmentFilter === 'all' || fulfillmentMethod === fulfillmentFilter;
+    return matchesSearch && matchesMemberLevel && matchesFulfillment;
+  });
 
   const stats = [
     { label: 'งานที่สามารถรับได้', value: availableOrders.length, color: 'bg-red-500', icon: Clock },
@@ -449,15 +490,37 @@ export default function FloristDashboard() {
           </div>
 
           {/* Search */}
-          <div className="mt-6 relative">
-            <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-            <input
-              type="text"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="ค้นหารหัสคำสั่งซื้อหรือชื่อลูกค้า"
-              className="w-full pl-12 pr-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none"
-            />
+          <div className="mt-6 grid grid-cols-1 md:grid-cols-4 gap-3">
+            <div className="md:col-span-2 relative">
+              <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="ค้นหารหัสคำสั่งซื้อหรือชื่อลูกค้า"
+                className="w-full pl-12 pr-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none"
+              />
+            </div>
+            <select
+              value={memberLevelFilter}
+              onChange={(e) => setMemberLevelFilter(e.target.value)}
+              className="px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none bg-white"
+            >
+              <option value="all">ระดับสมาชิกทั้งหมด</option>
+              <option value="Member">Member</option>
+              <option value="Silver">Silver</option>
+              <option value="Gold">Gold</option>
+              <option value="Platinum">Platinum</option>
+            </select>
+            <select
+              value={fulfillmentFilter}
+              onChange={(e) => setFulfillmentFilter(e.target.value as 'all' | 'pickup' | 'delivery')}
+              className="px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none bg-white"
+            >
+              <option value="all">การรับสินค้าทั้งหมด</option>
+              <option value="pickup">รับที่ร้าน</option>
+              <option value="delivery">จัดส่ง</option>
+            </select>
           </div>
         </div>
 
@@ -479,6 +542,9 @@ export default function FloristDashboard() {
                       <h3 className="text-xl text-blue-600 mb-1">{order.id}</h3>
                       <p className="text-gray-900">{order.customerName}</p>
                       {order.phone && <p className="text-sm text-gray-600">{order.phone}</p>}
+                      <p className="text-sm text-gray-600">
+                        ระดับสมาชิก: <span className="font-medium text-blue-700">{normalizeMemberLevel(order.member_level_name, order.member_level_id)}</span>
+                      </p>
                     </div>
                   </div>
 
@@ -500,6 +566,10 @@ export default function FloristDashboard() {
                     <div className="flex justify-between text-sm">
                       <span className="text-gray-600">จำนวนเงิน :</span>
                       <span className="text-gray-900 font-semibold">฿{order.total.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between gap-3 text-sm">
+                      <span className="text-gray-600">พนักงานอนุมัติ :</span>
+                      <span className="text-gray-900 text-right">{order.verified_by_name || '-'}</span>
                     </div>
                   </div>
 
@@ -535,6 +605,9 @@ export default function FloristDashboard() {
                       <h3 className="text-xl text-blue-600 mb-1">{task.id}</h3>
                       <p className="text-gray-900">{task.customerName}</p>
                       {task.phone && <p className="text-sm text-gray-600">{task.phone}</p>}
+                      <p className="text-sm text-gray-600">
+                        ระดับสมาชิก: <span className="font-medium text-blue-700">{normalizeMemberLevel(task.member_level_name, task.member_level_id)}</span>
+                      </p>
                     </div>
                   </div>
 
@@ -556,6 +629,10 @@ export default function FloristDashboard() {
                     <div className="flex justify-between text-sm">
                       <span className="text-gray-600">จำนวนเงิน :</span>
                       <span className="text-gray-900 font-semibold">฿{task.total.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between gap-3 text-sm">
+                      <span className="text-gray-600">พนักงานอนุมัติ :</span>
+                      <span className="text-gray-900 text-right">{task.verified_by_name || '-'}</span>
                     </div>
                     {task.florist_photo_url && (
                       <div className="flex justify-between text-sm">

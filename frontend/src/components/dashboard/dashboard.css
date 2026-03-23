@@ -298,6 +298,16 @@
   color: #ffffff;
 }
 
+.order-status-badge.success {
+  background-color: #16a34a;
+  color: #ffffff;
+}
+
+.order-status-badge.cancelled {
+  background-color: #ef4444;
+  color: #ffffff;
+}
+
 .rating-form-card {
   margin-top: 0.75rem;
   border: 1px solid #fde68a;

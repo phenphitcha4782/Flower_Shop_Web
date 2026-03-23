@@ -23,6 +23,15 @@ interface FrontTopProduct {
   productType?: string;
 }
 
+interface RecentOrderRow {
+  id: string;
+  customer: string;
+  memberLevel: string;
+  amount: string;
+  status: string;
+  time: string;
+}
+
 export default function ManagerDashboard() {
   const navigate = useNavigate();
   const [showFilters, setShowFilters] = useState(false);
@@ -38,6 +47,7 @@ export default function ManagerDashboard() {
   // Filter states
   const [dateRange, setDateRange] = useState('custom');
   const [productType, setProductType] = useState('all');
+  const [memberLevelFilter, setMemberLevelFilter] = useState('all');
   const [productTypes, setProductTypes] = useState<{ product_type_id: number; product_type_name: string }[]>([]);
 
   const getDateRangeParam = (value: string) => {
@@ -47,6 +57,46 @@ export default function ManagerDashboard() {
     if (value === 'this-month') return 'month';
     if (value === 'this-year') return 'year';
     return '';
+  };
+
+  const normalizeMemberLevel = (memberLevelName?: string, memberLevelId?: number) => {
+    if (memberLevelName) return memberLevelName;
+    if (memberLevelId === 2) return 'Silver';
+    if (memberLevelId === 3) return 'Gold';
+    if (memberLevelId === 4) return 'Platinum';
+    return 'Member';
+  };
+
+  const getMemberLevelBadgeClass = (memberLevelRaw?: string) => {
+    const memberLevel = String(memberLevelRaw || '').toLowerCase();
+    if (memberLevel === 'platinum') return 'bg-violet-100 text-violet-800';
+    if (memberLevel === 'gold') return 'bg-amber-100 text-amber-800';
+    if (memberLevel === 'silver') return 'bg-slate-200 text-slate-700';
+    return 'bg-emerald-100 text-emerald-800';
+  };
+
+  const mapOrderStatusLabel = (statusRaw?: string) => {
+    const status = String(statusRaw || '').toLowerCase();
+    if (status === 'waiting') return 'กำลังรอ';
+    if (status === 'received') return 'รับคำสั่งซื้อ';
+    if (status === 'preparing') return 'กำลังจัดเตรียม';
+    if (status === 'shipping') return 'กำลังจัดส่ง';
+    if (status === 'success') return 'พร้อมรับสินค้า';
+    if (status === 'delivered') return 'จัดส่งสำเร็จ';
+    if (status === 'cancelled' || status === 'canceled') return 'ยกเลิก';
+    return statusRaw || '-';
+  };
+
+  const getOrderStatusBadgeClass = (statusRaw?: string) => {
+    const status = String(statusRaw || '').toLowerCase();
+    if (status === 'waiting') return 'bg-yellow-100 text-yellow-800';
+    if (status === 'received') return 'bg-green-100 text-green-800';
+    if (status === 'preparing') return 'bg-indigo-100 text-indigo-800';
+    if (status === 'shipping') return 'bg-blue-100 text-blue-800';
+    if (status === 'success') return 'bg-green-100 text-green-800';
+    if (status === 'delivered') return 'bg-green-100 text-green-800';
+    if (status === 'cancelled' || status === 'canceled') return 'bg-red-100 text-red-800';
+    return 'bg-gray-100 text-gray-800';
   };
 
   // Load manager data and branch name
@@ -87,6 +137,7 @@ export default function ManagerDashboard() {
           const mapped = rows.slice(0, 10).map(r => ({
             id: r.order_code || String(r.order_id),
             customer: r.customer_name || '',
+            memberLevel: normalizeMemberLevel(r.member_level_name, Number(r.member_level_id || 0)),
             amount: `฿${Number(r.total_amount || 0).toLocaleString()}`,
             status: r.order_status || '',
             time: timeAgo(r.created_at || r.createdAt || new Date())
@@ -212,11 +263,17 @@ export default function ManagerDashboard() {
     { name: 'กล้วยไม้สีขาว', sales: 28, revenue: '฿1,540', productType: 'แจกัน' }
   ];
 
-  const [recentOrders, setRecentOrders] = useState<{ id: string; customer: string; amount: string; status: string; time: string }[]>([]);
+  const [recentOrders, setRecentOrders] = useState<RecentOrderRow[]>([]);
+
+  const filteredRecentOrders = recentOrders.filter((order) => {
+    if (memberLevelFilter === 'all') return true;
+    return String(order.memberLevel || '').toLowerCase() === String(memberLevelFilter).toLowerCase();
+  });
 
   const clearAllFilters = () => {
     setDateRange('custom');
     setProductType('all');
+    setMemberLevelFilter('all');
   };
 
   return (
@@ -327,6 +384,21 @@ export default function ManagerDashboard() {
                 </select>
               </div>
 
+              <div>
+                <label className="block text-sm text-gray-700 mb-2">ระดับสมาชิก</label>
+                <select
+                  value={memberLevelFilter}
+                  onChange={(e) => setMemberLevelFilter(e.target.value)}
+                  className="w-full px-4 py-2 border-2 border-gray-200 rounded-lg focus:border-blue-500 focus:outline-none"
+                >
+                  <option value="all">ทั้งหมด</option>
+                  <option value="Member">Member</option>
+                  <option value="Silver">Silver</option>
+                  <option value="Gold">Gold</option>
+                  <option value="Platinum">Platinum</option>
+                </select>
+              </div>
+
             </div>
 
             {/* Active Filters Summary */}
@@ -343,6 +415,14 @@ export default function ManagerDashboard() {
                 <span className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm flex items-center gap-2">
                   ประเภทสินค้า: {productType === 'bouquet' ? 'ช่อดอกไม้' : productType === 'vase' ? 'แจกัน' : 'สินค้าขายดี'}
                   <button onClick={() => setProductType('all')} className="hover:bg-blue-200 rounded-full p-0.5">
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              )}
+              {memberLevelFilter !== 'all' && (
+                <span className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm flex items-center gap-2">
+                  ระดับสมาชิก: {memberLevelFilter}
+                  <button onClick={() => setMemberLevelFilter('all')} className="hover:bg-blue-200 rounded-full p-0.5">
                     <X className="w-3 h-3" />
                   </button>
                 </span>
@@ -436,29 +516,36 @@ export default function ManagerDashboard() {
                 <tr>
                   <th className="px-6 py-3 text-left text-sm text-gray-600">รหัสคำสั่งซื้อ</th>
                   <th className="px-6 py-3 text-left text-sm text-gray-600">ชื่อลูกค้า</th>
+                  <th className="px-6 py-3 text-left text-sm text-gray-600">ระดับสมาชิก</th>
                   <th className="px-6 py-3 text-left text-sm text-gray-600">ยอดเงิน</th>
                   <th className="px-6 py-3 text-left text-sm text-gray-600">สถานะ</th>
                   <th className="px-6 py-3 text-left text-sm text-gray-600">เวลา</th>
                 </tr>
               </thead>
               <tbody>
-                {recentOrders.map((order) => (
+                {filteredRecentOrders.map((order) => (
                   <tr key={order.id} className="border-b border-gray-100 hover:bg-blue-50 transition-colors">
                     <td className="px-6 py-4 text-blue-600">{order.id}</td>
                     <td className="px-6 py-4 text-gray-900">{order.customer}</td>
+                    <td className="px-6 py-4">
+                      <span className={`px-3 py-1 rounded-full text-sm ${getMemberLevelBadgeClass(order.memberLevel)}`}>
+                        {order.memberLevel || 'Member'}
+                      </span>
+                    </td>
                     <td className="px-6 py-4 text-gray-900">{order.amount}</td>
                     <td className="px-6 py-4">
-                      <span className={`px-3 py-1 rounded-full text-sm ${
-                        order.status === 'จัดส่งแล้ว' ? 'bg-green-100 text-green-800' :
-                        order.status === 'กำลังจัดส่ง' ? 'bg-blue-100 text-blue-800' :
-                        'bg-yellow-100 text-yellow-800'
-                      }`}>
-                        {order.status}
+                      <span className={`px-3 py-1 rounded-full text-sm ${getOrderStatusBadgeClass(order.status)}`}>
+                        {mapOrderStatusLabel(order.status)}
                       </span>
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-600">{order.time}</td>
                   </tr>
                 ))}
+                {filteredRecentOrders.length === 0 && (
+                  <tr>
+                    <td className="px-6 py-6 text-center text-gray-500" colSpan={6}>ไม่พบคำสั่งซื้อในระดับสมาชิกที่เลือก</td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
