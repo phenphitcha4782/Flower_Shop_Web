@@ -2,6 +2,10 @@ export type FlowerType = {
   flower_id: number;
   flower_name: string;
   flower_price?: number;
+  flower_img?: string | null;
+  filler_flower_img?: string | null;
+  import_date?: string | null;
+  expiry_date?: string | null;
 };
 
 export async function getMainFlowers(): Promise<FlowerType[]> {

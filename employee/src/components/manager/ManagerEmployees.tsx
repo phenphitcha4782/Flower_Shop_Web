@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { AlertTriangle, ArrowLeft, Building2, Search, Star, Users } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -31,128 +32,6 @@ interface ComplaintItem {
   status: 'pending' | 'in-progress' | 'resolved';
 }
 
-const employeeSeed: EmployeeItem[] = [
-  {
-    id: '1',
-    username: 'cashier001',
-    profileImage: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=200&q=80',
-    firstName: 'สมชาย',
-    lastName: 'ใจดี',
-    phone: '081-234-5678',
-    branch: 'พิจิตร',
-    role: 'cashier',
-    salary: 16000,
-    rating: 4.6,
-    assignedJobs: 128,
-    performanceMonth: '2026-01',
-    createdAt: '2025-01-15'
-  },
-  {
-    id: '2',
-    username: 'florist001',
-    profileImage: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=200&q=80',
-    firstName: 'สมหญิง',
-    lastName: 'รักดอกไม้',
-    phone: '082-345-6789',
-    branch: 'พิจิตร',
-    role: 'florist',
-    salary: 18500,
-    rating: 4.8,
-    assignedJobs: 96,
-    performanceMonth: '2026-01',
-    createdAt: '2025-01-15'
-  },
-  {
-    id: '3',
-    username: 'rider001',
-    profileImage: 'https://images.unsplash.com/photo-1542204625-de293a8e0fe6?auto=format&fit=crop&w=200&q=80',
-    firstName: 'สมศักดิ์',
-    lastName: 'ขับเร็ว',
-    phone: '083-456-7890',
-    branch: 'กรุงเทพและปริมณฑล',
-    role: 'rider',
-    salary: 17000,
-    rating: 4.4,
-    assignedJobs: 212,
-    performanceMonth: '2026-02',
-    createdAt: '2025-01-16'
-  },
-  {
-    id: '4',
-    username: 'manager001',
-    profileImage: 'https://images.unsplash.com/photo-1560250097-0b93528c311a?auto=format&fit=crop&w=200&q=80',
-    firstName: 'สมพร',
-    lastName: 'จัดการเก่ง',
-    phone: '084-567-8901',
-    branch: 'พิจิตร',
-    role: 'manager',
-    salary: 32000,
-    rating: 4.9,
-    assignedJobs: 61,
-    performanceMonth: '2026-02',
-    createdAt: '2025-01-10'
-  },
-  {
-    id: '5',
-    username: 'cashier002',
-    profileImage: 'https://images.unsplash.com/photo-1504593811423-6dd665756598?auto=format&fit=crop&w=200&q=80',
-    firstName: 'วิชัย',
-    lastName: 'บริการดี',
-    phone: '085-678-9012',
-    branch: 'แพร่',
-    role: 'cashier',
-    salary: 15800,
-    rating: 4.3,
-    assignedJobs: 104,
-    performanceMonth: '2026-02',
-    createdAt: '2025-01-18'
-  },
-  {
-    id: '6',
-    username: 'florist002',
-    profileImage: 'https://images.unsplash.com/photo-1487412720507-e7ab37603c6f?auto=format&fit=crop&w=200&q=80',
-    firstName: 'วรรณา',
-    lastName: 'สวยงาม',
-    phone: '086-789-0123',
-    branch: 'แพร่',
-    role: 'florist',
-    salary: 18200,
-    rating: 4.7,
-    assignedJobs: 88,
-    performanceMonth: '2026-03',
-    createdAt: '2025-01-18'
-  },
-  {
-    id: '7',
-    username: 'rider002',
-    profileImage: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=200&q=80',
-    firstName: 'ประยุทธ',
-    lastName: 'ส่งไว',
-    phone: '087-890-1234',
-    branch: 'สงขลา',
-    role: 'rider',
-    salary: 17200,
-    rating: 4.2,
-    assignedJobs: 187,
-    performanceMonth: '2026-03',
-    createdAt: '2025-01-20'
-  },
-  {
-    id: '8',
-    username: 'executive001',
-    profileImage: 'https://images.unsplash.com/photo-1556157382-97eda2d62296?auto=format&fit=crop&w=200&q=80',
-    firstName: 'นายใหญ่',
-    lastName: 'บริหารดี',
-    phone: '088-901-2345',
-    branch: 'ทุกสาขา',
-    role: 'executive',
-    salary: 65000,
-    rating: 5,
-    assignedJobs: 24,
-    performanceMonth: '2026-03',
-    createdAt: '2025-01-01'
-  }
-];
 
 const complaintSeed: ComplaintItem[] = [
   {
@@ -190,14 +69,33 @@ const complaintSeed: ComplaintItem[] = [
 export default function ManagerEmployees() {
   const navigate = useNavigate();
   const [branchName, setBranchName] = useState('');
+  const [employees, setEmployees] = useState<EmployeeItem[]>([]);
+  const [loadingEmployees, setLoadingEmployees] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [roleFilter, setRoleFilter] = useState<'all' | EmployeeRole>('all');
   const [monthFilter, setMonthFilter] = useState('all');
   const [complaintStatusFilter, setComplaintStatusFilter] = useState<'all' | ComplaintItem['status']>('all');
 
+  const mapRole = (roleId: number, roleName?: string): EmployeeRole => {
+    const normalized = String(roleName || '').trim().toLowerCase();
+    if (normalized.includes('cashier') || normalized.includes('แคช')) return 'cashier';
+    if (normalized.includes('florist') || normalized.includes('ช่าง')) return 'florist';
+    if (normalized.includes('rider') || normalized.includes('ไรเดอร์')) return 'rider';
+    if (normalized.includes('manager') || normalized.includes('ผู้จัดการ')) return 'manager';
+    if (normalized.includes('executive') || normalized.includes('ผู้บริหาร')) return 'executive';
+
+    if (roleId === 1) return 'cashier';
+    if (roleId === 2) return 'florist';
+    if (roleId === 3) return 'rider';
+    if (roleId === 4) return 'manager';
+    return 'executive';
+  };
+
   useEffect(() => {
     const branchId = localStorage.getItem('branch_id');
     if (!branchId) return;
+
+    setLoadingEmployees(true);
 
     fetch('http://localhost:3000/api/branches')
       .then((res) => res.json())
@@ -206,6 +104,46 @@ export default function ManagerEmployees() {
         if (branch) setBranchName(branch.branch_name);
       })
       .catch((err) => console.error('Failed to load branches:', err));
+
+    fetch(`http://localhost:3000/api/manager/branch-employees/${branchId}`)
+      .then((res) => res.json())
+      .then((rows: Array<any>) => {
+        const mapped = rows.map((row) => {
+          const firstName = String(row.name || '').trim();
+          const lastName = String(row.surname || '').trim();
+          const username = String(row.username || `employee_${row.employee_id || ''}`);
+          const createdAt = row.created_at ? String(row.created_at) : new Date().toISOString();
+          const profileUrlRaw = String(row.employee_profile_url || '').trim();
+          const profileUrl = profileUrlRaw
+            ? (profileUrlRaw.startsWith('http://') || profileUrlRaw.startsWith('https://')
+              ? profileUrlRaw
+              : `http://localhost:3000${profileUrlRaw.startsWith('/') ? '' : '/'}${profileUrlRaw}`)
+            : '';
+          return {
+            id: String(row.employee_id),
+            username,
+            profileImage:
+              profileUrl ||
+              `https://ui-avatars.com/api/?background=E5F0FF&color=1F4D8F&name=${encodeURIComponent(`${firstName} ${lastName}`.trim() || username)}`,
+            firstName: firstName || '-',
+            lastName: lastName || '-',
+            phone: String(row.phone || '-'),
+            branch: String(row.branch_name || branchName || `สาขา ${branchId}`),
+            role: mapRole(Number(row.role_id || 0), String(row.role_name || '')),
+            salary: Number(row.salary || 0),
+            rating: 0,
+            assignedJobs: 0,
+            performanceMonth: createdAt.slice(0, 7),
+            createdAt,
+          } as EmployeeItem;
+        });
+        setEmployees(mapped);
+      })
+      .catch((err) => {
+        console.error('Failed to load branch employees:', err);
+        setEmployees([]);
+      })
+      .finally(() => setLoadingEmployees(false));
   }, []);
 
   const roleLabel = (role: EmployeeRole) => {
@@ -225,12 +163,15 @@ export default function ManagerEmployees() {
   };
 
   const branchEmployees = useMemo(() => {
-    if (!branchName) return [];
-    return employeeSeed.filter((user) => user.branch === branchName);
-  }, [branchName]);
+    return employees;
+  }, [employees]);
 
   const monthOptions = useMemo(() => {
-    const set = new Set(branchEmployees.map((item) => item.performanceMonth).filter(Boolean));
+    const set = new Set(
+      branchEmployees
+        .map((item) => item.performanceMonth)
+        .filter((value) => /^\d{4}-\d{2}$/.test(value))
+    );
     return Array.from(set).sort();
   }, [branchEmployees]);
 
@@ -247,11 +188,6 @@ export default function ManagerEmployees() {
       return matchesSearch && matchesRole && matchesMonth;
     });
   }, [branchEmployees, searchTerm, roleFilter, monthFilter]);
-
-  const previewEmployees = useMemo(() => {
-    if (filteredEmployees.length > 0) return filteredEmployees.slice(0, 3);
-    return branchEmployees.slice(0, 3);
-  }, [filteredEmployees, branchEmployees]);
 
   const topPerformerByRole = (role: EmployeeRole) => {
     const roleUsers = filteredEmployees.filter((user) => user.role === role);
@@ -287,7 +223,7 @@ export default function ManagerEmployees() {
         branchEmployees.length > 0
           ? (branchEmployees.reduce((sum, user) => sum + user.rating, 0) / branchEmployees.length).toFixed(1)
           : '0.0',
-      color: 'bg-amber-500',
+      color: 'bg-yellow-500',
       icon: Star
     },
     {
@@ -299,10 +235,26 @@ export default function ManagerEmployees() {
     {
       label: 'คอมเพลนที่ยังเปิด',
       value: String(openComplaintCount),
-      color: 'bg-rose-500',
+      color: 'bg-red-500',
       icon: AlertTriangle
     }
   ];
+
+  const getStatIcon = (label: string, icon?: any) => {
+    if (icon) return icon;
+    if (label === 'คะแนนเฉลี่ย') return Star;
+    if (label === 'คอมเพลนที่ยังเปิด') return AlertTriangle;
+    if (label === 'จำนวนงานรวม') return Building2;
+    return Users;
+  };
+
+  const getStatColor = (label: string, color?: string) => {
+    if (color) return color;
+    if (label === 'คะแนนเฉลี่ย') return 'bg-amber-500';
+    if (label === 'คอมเพลนที่ยังเปิด') return 'bg-rose-500';
+    if (label === 'จำนวนงานรวม') return 'bg-indigo-500';
+    return 'bg-blue-500';
+  };
 
   const formatMonth = (monthValue: string) => {
     const [year, month] = monthValue.split('-');
@@ -335,7 +287,7 @@ export default function ManagerEmployees() {
               <div>
                 <h1 className="text-2xl text-gray-900">พนักงานในสาขา</h1>
                 <p className="text-sm text-gray-600">
-                  ข้อมูลพนักงานแบบละเอียด (ดูได้เฉพาะสาขาของคุณ): {branchName || 'กำลังโหลด...'}
+                  ข้อมูลพนักงานทั้งหมด : {branchName || 'กำลังโหลด...'}
                 </p>
               </div>
             </div>
@@ -347,11 +299,17 @@ export default function ManagerEmployees() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           {stats.map((stat, index) => (
             <div key={index} className="bg-white rounded-xl shadow-md p-6">
+              {(() => {
+                const StatIcon = getStatIcon(stat.label, stat.icon);
+                const statColor = getStatColor(stat.label, stat.color);
+                return (
               <div className="flex items-start justify-between mb-4">
-                <div className={`w-12 h-12 ${stat.color} rounded-xl flex items-center justify-center`}>
-                  <stat.icon className={`w-6 h-6 text-white ${stat.label === 'คะแนนเฉลี่ย' ? 'fill-white' : ''}`} />
+                <div className={`w-12 h-12 ${statColor} rounded-xl flex items-center justify-center`}>
+                  <StatIcon className={`w-6 h-6 text-white ${stat.label === 'คะแนนเฉลี่ย' ? 'fill-white' : ''}`} />
                 </div>
               </div>
+                );
+              })()}
               <p className="text-3xl text-gray-900 mb-1">{stat.value}</p>
               <p className="text-sm text-gray-600">{stat.label}</p>
             </div>
@@ -362,7 +320,7 @@ export default function ManagerEmployees() {
           <div className="flex items-start justify-between mb-4">
             <div>
               <h3 className="text-base text-gray-900">ฟิลเตอร์พนักงานดีเด่น</h3>
-              <p className="text-sm text-gray-500">เลือกเดือนเพื่อดูผู้ที่โดดเด่นในแต่ละบทบาท</p>
+              <p className="text-sm text-gray-500">เลือกเดือนเพื่อดูผู้ที่โดดเด่นในแต่ละตำแหน่ง</p>
             </div>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -414,37 +372,6 @@ export default function ManagerEmployees() {
         </div>
 
         <div className="bg-white rounded-xl shadow-md p-6 mb-8">
-          <h3 className="text-base text-gray-900 mb-4">ตัวอย่างการ์ดพนักงาน (Frontend)</h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {previewEmployees.map((user) => (
-              <article key={user.id} className="rounded-xl border border-blue-100 bg-blue-50/30 p-4">
-                <div className="flex items-start gap-3">
-                  <img
-                    src={user.profileImage}
-                    alt={`${user.firstName} ${user.lastName}`}
-                    className="w-14 h-14 rounded-full object-cover border border-white shadow-sm"
-                  />
-                  <div className="min-w-0">
-                    <p className="text-gray-900 truncate">{user.firstName} {user.lastName}</p>
-                    <p className="text-xs text-gray-500 font-mono truncate">{user.username}</p>
-                    <span className={`mt-2 inline-block px-2.5 py-1 rounded-full text-xs ${roleBadgeClass(user.role)}`}>
-                      {roleLabel(user.role)}
-                    </span>
-                  </div>
-                </div>
-                <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-                  <div className="rounded-md bg-white px-2 py-1 text-gray-700">Rating: {user.rating.toFixed(1)}</div>
-                  <div className="rounded-md bg-white px-2 py-1 text-gray-700">งาน: {user.assignedJobs.toLocaleString('th-TH')}</div>
-                </div>
-              </article>
-            ))}
-          </div>
-          {previewEmployees.length === 0 && (
-            <div className="text-center py-6 text-gray-500">ไม่มีข้อมูลตัวอย่างที่ตรงกับเงื่อนไข</div>
-          )}
-        </div>
-
-        <div className="bg-white rounded-xl shadow-md p-6 mb-8">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div className="md:col-span-2">
               <div className="relative">
@@ -464,7 +391,7 @@ export default function ManagerEmployees() {
                 onChange={(e) => setRoleFilter(e.target.value as 'all' | EmployeeRole)}
                 className="w-full px-4 py-2 border-2 border-gray-200 rounded-lg focus:border-blue-500 focus:outline-none"
               >
-                <option value="all">ทุกบทบาท</option>
+                <option value="all">ทุกตำแหน่ง</option>
                 <option value="cashier">แคชเชียร์</option>
                 <option value="florist">ช่างจัดดอกไม้</option>
                 <option value="rider">ไรเดอร์</option>
@@ -491,7 +418,7 @@ export default function ManagerEmployees() {
                   <th className="px-6 py-3 text-left text-sm text-gray-600">ชื่อ-นามสกุล</th>
                   <th className="px-6 py-3 text-left text-sm text-gray-600">เบอร์โทร</th>
                   <th className="px-6 py-3 text-left text-sm text-gray-600">สาขา</th>
-                  <th className="px-6 py-3 text-left text-sm text-gray-600">บทบาท</th>
+                  <th className="px-6 py-3 text-left text-sm text-gray-600">ตำแหน่ง</th>
                   <th className="px-6 py-3 text-left text-sm text-gray-600">เงินเดือน</th>
                   <th className="px-6 py-3 text-left text-sm text-gray-600">Rating</th>
                   <th className="px-6 py-3 text-left text-sm text-gray-600">จำนวนงานที่รับ</th>
@@ -529,7 +456,9 @@ export default function ManagerEmployees() {
             </table>
           </div>
           {filteredEmployees.length === 0 && (
-            <div className="py-12 text-center text-gray-500">ไม่พบพนักงานที่ตรงกับเงื่อนไขในสาขานี้</div>
+            <div className="py-12 text-center text-gray-500">
+              {loadingEmployees ? 'กำลังโหลดข้อมูลพนักงาน...' : 'ไม่พบพนักงานที่ตรงกับเงื่อนไขในสาขานี้'}
+            </div>
           )}
         </div>
 
@@ -556,7 +485,7 @@ export default function ManagerEmployees() {
                 <tr>
                   <th className="px-6 py-3 text-left text-sm text-gray-600">รหัส Order</th>
                   <th className="px-6 py-3 text-left text-sm text-gray-600">ชื่อพนักงาน</th>
-                  <th className="px-6 py-3 text-left text-sm text-gray-600">บทบาท</th>
+                  <th className="px-6 py-3 text-left text-sm text-gray-600">ตำแหน่ง</th>
                   <th className="px-6 py-3 text-left text-sm text-gray-600">คะแนนออเดอร์</th>
                   <th className="px-6 py-3 text-left text-sm text-gray-600">สาเหตุ</th>
                   <th className="px-6 py-3 text-left text-sm text-gray-600">สถานะ</th>

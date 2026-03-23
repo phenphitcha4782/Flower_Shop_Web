@@ -1,73 +1,205 @@
-import { useState } from 'react';
+import { ArrowLeft, Edit, Plus, Search, Trash2 } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Plus, Edit, Trash2, Search } from 'lucide-react';
 import { ImageWithFallback } from '../figma/ImageWithFallback';
 
 export default function ProductManagement() {
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [errorMsg, setErrorMsg] = useState('');
+  const [products, setProducts] = useState<Array<{
+    id: string;
+    name: string;
+    category: string;
+    source: string;
+    price: number;
+    stockLabel: string;
+    importDate: string;
+    expiryDate: string;
+    status: string;
+    image: string;
+  }>>([]);
 
-  const products = [
-    {
-      id: 1,
-      name: 'ช่อกุหลาบสีชมพู',
-      category: 'ช่อดอกไม้',
-      price: 45.00,
-      stock: 25,
-      status: 'ใช้งานอยู่',
-      image: 'https://images.unsplash.com/photo-1672243691196-9b7f64cce1c0?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&w=400'
-    },
-    {
-      id: 2,
-      name: 'ช่อทานตะวัน',
-      category: 'ช่อดอกไม้',
-      price: 38.00,
-      stock: 18,
-      status: 'ใช้งานอยู่',
-      image: 'https://images.unsplash.com/photo-1630787863782-194cfee87c79?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&w=400'
-    },
-    {
-      id: 3,
-      name: 'ช่อทิวลิป',
-      category: 'ช่อดอกไม้',
-      price: 42.00,
-      stock: 12,
-      status: 'ใช้งานอยู่',
-      image: 'https://images.unsplash.com/photo-1580403072903-36afa4f4c9f6?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&w=400'
-    },
-    {
-      id: 4,
-      name: 'กล้วยไม้สีขาว',
-      category: 'ช่อดอกไม้',
-      price: 55.00,
-      stock: 8,
-      status: 'ใช้งานอยู่',
-      image: 'https://images.unsplash.com/photo-1577378978713-9bebf3db8312?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&w=400'
-    },
-    {
-      id: 5,
-      name: 'แจกันแก้ว',
-      category: 'แจกัน',
-      price: 25.00,
-      stock: 30,
-      status: 'ใช้งานอยู่',
-      image: 'https://images.unsplash.com/photo-1715028241504-b66bf0bf1910?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&w=400'
-    },
-    {
-      id: 6,
-      name: 'แจกันเซรามิก',
-      category: 'แจกัน',
-      price: 32.00,
-      stock: 5,
-      status: 'สต็อกต่ำ',
-      image: 'https://images.unsplash.com/photo-1761330439582-c7fd39368cff?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&w=400'
-    }
-  ];
+  const formatDate = (value: any) => {
+    if (!value) return '-';
+    const raw = String(value);
+    const match = raw.match(/\d{4}-\d{2}-\d{2}/);
+    if (match) return match[0];
+    const d = new Date(raw);
+    if (Number.isNaN(d.getTime())) return '-';
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  };
 
-  const filteredProducts = products.filter(product =>
-    product.name.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  useEffect(() => {
+    const loadAllProducts = async () => {
+      try {
+        setLoading(true);
+        setErrorMsg('');
+
+        const [productsRes, vaseRes, cardsRes, flowersRes, fillerRes, wrappingRes, ribbonsRes] = await Promise.all([
+          fetch('http://localhost:3000/api/products').then((r) => r.json()),
+          fetch('http://localhost:3000/api/vase-shapes/all').then((r) => r.json()),
+          fetch('http://localhost:3000/api/cards').then((r) => r.json()),
+          fetch('http://localhost:3000/api/main-flowers').then((r) => r.json()),
+          fetch('http://localhost:3000/api/filler-flowers').then((r) => r.json()),
+          fetch('http://localhost:3000/api/wrappings/all').then((r) => r.json()),
+          fetch('http://localhost:3000/api/ribbons').then((r) => r.json()),
+        ]);
+
+        const combined = [
+          ...(Array.isArray(productsRes)
+            ? productsRes.map((p: any) => ({
+                id: `product-${p.product_id}`,
+                name: String(p.product_name || '-'),
+                category: String(p.product_type_name || 'product'),
+                source: 'product',
+                price: Number(p.product_price || 0),
+                stockLabel: '-',
+                importDate: '-',
+                expiryDate: '-',
+                status: 'ใช้งานอยู่',
+                image: String(p.product_img || ''),
+              }))
+            : []),
+          ...(Array.isArray(vaseRes)
+            ? vaseRes.map((v: any) => ({
+                id: `vase-${v.vase_id}`,
+                name: String(v.vase_name || '-'),
+                category: 'แจกัน',
+                source: 'vase',
+                price: Number(v.vase_price || 0),
+                stockLabel: '-',
+                importDate: '-',
+                expiryDate: '-',
+                status: 'ใช้งานอยู่',
+                image: String(v.vase_img || ''),
+              }))
+            : []),
+          ...(Array.isArray(cardsRes)
+            ? cardsRes.map((c: any) => ({
+                id: `card-${c.card_id}`,
+                name: String(c.card_name || '-'),
+                category: 'การ์ด',
+                source: 'card',
+                price: Number(c.card_price || 0),
+                stockLabel: '-',
+                importDate: '-',
+                expiryDate: '-',
+                status: 'ใช้งานอยู่',
+                image: String(c.card_img || ''),
+              }))
+            : []),
+          ...(Array.isArray(flowersRes)
+            ? flowersRes.map((f: any) => ({
+                id: `flower-${f.flower_id}`,
+                name: String(f.flower_name || '-'),
+                category: 'ดอกไม้หลัก',
+                source: 'flower',
+                price: Number(f.flower_price || 0),
+                stockLabel: '-',
+                importDate: formatDate(f.import_date),
+                expiryDate: formatDate(f.expiry_date),
+                status: 'ใช้งานอยู่',
+                image: '',
+              }))
+            : []),
+          ...(Array.isArray(fillerRes)
+            ? fillerRes.map((f: any) => ({
+                id: `filler-${f.flower_id}`,
+                name: String(f.flower_name || '-'),
+                category: 'ดอกแซม',
+                source: 'filler_flower',
+                price: Number(f.flower_price || 0),
+                stockLabel: '-',
+                importDate: formatDate(f.import_date),
+                expiryDate: formatDate(f.expiry_date),
+                status: 'ใช้งานอยู่',
+                image: '',
+              }))
+            : []),
+          ...(Array.isArray(wrappingRes)
+            ? wrappingRes.map((w: any) => ({
+                id: `wrapping-${w.wrapping_id}`,
+                name: String(w.wrapping_name || '-'),
+                category: 'วัสดุห่อ',
+                source: 'wrapping',
+                price: Number(w.wrapping_price || 0),
+                stockLabel: '-',
+                importDate: '-',
+                expiryDate: '-',
+                status: 'ใช้งานอยู่',
+                image: String(w.wrapping_img || ''),
+              }))
+            : []),
+          ...(Array.isArray(ribbonsRes)
+            ? ribbonsRes.map((r: any) => ({
+                id: `ribbon-${r.ribbon_id}`,
+                name: String(r.ribbon_name || '-'),
+                category: 'ริบบิ้น',
+                source: 'ribbon',
+                price: 0,
+                stockLabel: '-',
+                importDate: '-',
+                expiryDate: '-',
+                status: 'ใช้งานอยู่',
+                image: String(r.ribbon_img || ''),
+              }))
+            : []),
+        ];
+
+        setProducts(combined);
+      } catch (err: any) {
+        console.error('Failed to load manager products:', err);
+        setErrorMsg('ไม่สามารถโหลดข้อมูลสินค้าจากฐานข้อมูลได้');
+        setProducts([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadAllProducts();
+  }, []);
+
+  const filteredProducts = useMemo(() => {
+    const keyword = searchTerm.trim().toLowerCase();
+    return products.filter((product) => {
+      if (!keyword) return true;
+      return (
+        product.name.toLowerCase().includes(keyword) ||
+        product.category.toLowerCase().includes(keyword) ||
+        product.source.toLowerCase().includes(keyword)
+      );
+    });
+  }, [products, searchTerm]);
+
+  const sourceLabelMap: Record<string, string> = {
+    product: 'สินค้า (product)',
+    vase: 'แจกัน (vase)',
+    card: 'การ์ด (card)',
+    flower: 'ดอกไม้หลัก (flower)',
+    filler_flower: 'ดอกแซม (filler_flower)',
+    wrapping: 'วัสดุห่อ (wrapping)',
+    ribbon: 'ริบบิ้น (ribbon)',
+  };
+
+  const sourceOrder = ['product', 'vase', 'card', 'flower', 'filler_flower', 'wrapping', 'ribbon'];
+
+  const groupedProducts = useMemo(() => {
+    const groups: Record<string, typeof filteredProducts> = {};
+    filteredProducts.forEach((item) => {
+      if (!groups[item.source]) groups[item.source] = [];
+      groups[item.source].push(item);
+    });
+
+    return sourceOrder
+      .filter((source) => Array.isArray(groups[source]) && groups[source].length > 0)
+      .map((source) => ({ source, items: groups[source] }));
+  }, [filteredProducts]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-cyan-50 to-blue-100">
@@ -109,44 +241,92 @@ export default function ProductManagement() {
           </div>
         </div>
 
-        {/* Products Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredProducts.map(product => (
-            <div key={product.id} className="bg-white rounded-xl shadow-md overflow-hidden hover:shadow-xl transition-shadow">
-              <div className="aspect-square overflow-hidden bg-gray-100">
-                <ImageWithFallback
-                  src={product.image}
-                  alt={product.name}
-                  className="w-full h-full object-cover"
-                />
+        {loading && (
+          <div className="bg-white rounded-xl shadow-md p-6 mb-6 text-gray-600">กำลังโหลดข้อมูลสินค้าจากฐานข้อมูล...</div>
+        )}
+        {!loading && errorMsg && (
+          <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-4 mb-6">{errorMsg}</div>
+        )}
+
+        {/* Horizontal Product Lists by Category */}
+        {!loading && !errorMsg && groupedProducts.length === 0 && (
+          <div className="bg-white rounded-xl shadow-md p-6 text-gray-600">ไม่พบข้อมูลสินค้าที่ตรงกับคำค้นหา</div>
+        )}
+
+        <div className="space-y-6">
+          {groupedProducts.map((group) => (
+            <section key={group.source} className="bg-white rounded-xl shadow-md p-5">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg text-gray-900">{sourceLabelMap[group.source] || group.source}</h3>
+                <span className="text-sm text-gray-500">{group.items.length} รายการ</span>
               </div>
-              <div className="p-5">
-                <div className="flex items-start justify-between mb-2">
-                  <div className="flex-1">
-                    <h3 className="text-lg text-gray-900 mb-1">{product.name}</h3>
-                    <p className="text-sm text-gray-600">{product.category}</p>
-                  </div>
-                  <span className={`px-2 py-1 rounded text-xs ${
-                    product.status === 'ใช้งานอยู่' ? 'bg-green-100 text-green-800' : 'bg-orange-100 text-orange-800'
-                  }`}>
-                    {product.status}
-                  </span>
-                </div>
-                <div className="mb-4">
-                  <p className="text-2xl text-blue-600">฿${product.price.toFixed(2)}</p>
-                  <p className="text-sm text-gray-600">สต็อก: {product.stock} ชิ้น</p>
-                </div>
-                <div className="flex gap-2">
-                  <button className="flex-1 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors flex items-center justify-center gap-2">
-                    <Edit className="w-4 h-4" />
-                    <span>แก้ไข</span>
-                  </button>
-                  <button className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors">
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[760px] table-fixed">
+                  <colgroup>
+                    <col style={{ width: '70px' }} />
+                    <col />
+                    <col style={{ width: '130px' }} />
+                    <col style={{ width: '100px' }} />
+                    <col style={{ width: '120px' }} />
+                    <col style={{ width: '120px' }} />
+                    <col style={{ width: '72px' }} />
+                    <col style={{ width: '72px' }} />
+                  </colgroup>
+                  <thead>
+                    <tr className="border-b border-gray-200 text-xs text-gray-500">
+                      <th className="py-2 text-left font-medium">รูป</th>
+                      <th className="py-2 text-left font-medium">ชื่อสินค้า</th>
+                      <th className="py-2 text-right font-medium">ราคา</th>
+                      <th className="py-2 text-right font-medium">สต็อก</th>
+                      <th className="py-2 text-right font-medium">วันที่นำเข้า</th>
+                      <th className="py-2 text-right font-medium">วันหมดอายุ</th>
+                      <th className="py-2 text-center font-medium">แก้ไข</th>
+                      <th className="py-2 text-center font-medium">ลบสินค้า</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {group.items.map((product) => (
+                      <tr key={product.id} className="border-b border-gray-100 align-middle">
+                        <td className="py-2 pr-2">
+                          <div className="w-[50px] h-[50px] overflow-hidden rounded-md bg-gray-100">
+                            <ImageWithFallback
+                              src={product.image}
+                              alt={product.name}
+                              className="w-full h-full object-cover"
+                            />
+                          </div>
+                        </td>
+                        <td className="py-2 pr-3">
+                          <p className="text-sm text-gray-900 break-words leading-5">{product.name}</p>
+                          <p className="text-xs text-gray-500">{product.category}</p>
+                        </td>
+                        <td className="py-2 text-right text-sm text-blue-600">฿{product.price.toFixed(2)}</td>
+                        <td className="py-2 text-right text-sm text-gray-700">{product.stockLabel}</td>
+                        <td className="py-2 text-right text-sm text-gray-700">{product.importDate}</td>
+                        <td className="py-2 text-right text-sm text-gray-700">{product.expiryDate}</td>
+                        <td className="py-2 text-center">
+                          <button
+                            title="แก้ไขรายการ"
+                            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-100 hover:text-blue-700 transition-colors"
+                          >
+                            <Edit className="w-4 h-4" />
+                          </button>
+                        </td>
+                        <td className="py-2 text-center">
+                          <button
+                            title="ลบรายการ"
+                            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-red-200 bg-red-50 text-red-600 hover:bg-red-100 hover:text-red-700 transition-colors"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
-            </div>
+            </section>
           ))}
         </div>
       </div>

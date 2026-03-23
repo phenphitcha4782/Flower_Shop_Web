@@ -20,6 +20,13 @@ export function FlowerTypeSelection({
   imageUrl,
   onFlowerTypeSelect,
 }: FlowerTypeSelectionProps) {
+  const resolveDbImageUrl = (raw?: string | null) => {
+    const value = String(raw || '').trim();
+    if (!value) return '';
+    if (value.startsWith('http://') || value.startsWith('https://') || value.startsWith('data:')) return value;
+    return `http://localhost:3000${value.startsWith('/') ? '' : '/'}${value}`;
+  };
+
   const [selectedFlowerTypes, setSelectedFlowerTypes] = useState<DbFlowerType[]>([]);
   const [dbFlowerTypes, setDbFlowerTypes] = useState<DbFlowerType[]>([]);
   const [loading, setLoading] = useState(true);
@@ -88,11 +95,15 @@ export function FlowerTypeSelection({
         <div className="grid md:grid-cols-2 gap-8 lg:gap-10 items-start">
           {/* Left: Image and Summary */}
           <div className="flex flex-col">
-            <div className="w-full max-w-xl mx-auto rounded-3xl overflow-hidden shadow-xl mb-6 border border-[#AEE6FF]/40 bg-white">
+            <div
+              className="mx-auto rounded-3xl overflow-hidden shadow-xl mb-6 border border-[#AEE6FF]/40 bg-white"
+              style={{ width: '300px', height: '300px', minWidth: '300px', minHeight: '300px', maxWidth: '300px', maxHeight: '300px' }}
+            >
               <ImageWithFallback
                 src={imageUrl}
                 alt="ตัวอย่างสินค้า"
-                className="w-full h-auto"
+                className="w-full h-full"
+                style={{ width: '300px', height: '300px', minWidth: '300px', minHeight: '300px', maxWidth: '300px', maxHeight: '300px', objectFit: 'cover' }}
               />
             </div>
 
@@ -174,7 +185,21 @@ export function FlowerTypeSelection({
                         color: isSelected ? 'white' : '#374151',
                       }}
                     >
-                      <div className="text-4xl">{iconData.icon}</div>
+                      {resolveDbImageUrl((flower as any).flower_img) ? (
+                        <div
+                          className="rounded-lg overflow-hidden border border-white/30 bg-white/20"
+                          style={{ width: '300px', height: '300px', minWidth: '300px', minHeight: '300px', maxWidth: '300px', maxHeight: '300px' }}
+                        >
+                          <ImageWithFallback
+                            src={resolveDbImageUrl((flower as any).flower_img)}
+                            alt={flower.flower_name}
+                            className="w-full h-full"
+                            style={{ width: '300px', height: '300px', minWidth: '300px', minHeight: '300px', maxWidth: '300px', maxHeight: '300px', objectFit: 'cover' }}
+                          />
+                        </div>
+                      ) : (
+                        <div className="text-4xl">{iconData.icon}</div>
+                      )}
                       <span>{flower.flower_name}</span>
                       {isSelected && (
                         <div className="text-xs mt-1 bg-white text-gray-700 px-2 py-1 rounded-full">

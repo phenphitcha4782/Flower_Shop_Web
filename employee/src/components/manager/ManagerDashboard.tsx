@@ -40,6 +40,15 @@ export default function ManagerDashboard() {
   const [productType, setProductType] = useState('all');
   const [productTypes, setProductTypes] = useState<{ product_type_id: number; product_type_name: string }[]>([]);
 
+  const getDateRangeParam = (value: string) => {
+    if (value === 'today') return 'today';
+    if (value === 'yesterday') return 'yesterday';
+    if (value === 'this-week') return 'week';
+    if (value === 'this-month') return 'month';
+    if (value === 'this-year') return 'year';
+    return '';
+  };
+
   // Load manager data and branch name
   useEffect(() => {
     const managerName = localStorage.getItem('manager_name') || '';
@@ -71,14 +80,6 @@ export default function ManagerDashboard() {
           setStats(data);
         })
         .catch(err => console.error('Failed to load dashboard stats:', err));
-      // Fetch weekly sales
-      fetch(`http://localhost:3000/api/manager/weekly-sales/${branchId}`)
-        .then(res => res.json())
-        .then((rows: { date: string; sales: number }[]) => {
-          const mapped = rows.map(r => ({ day: thaiWeekday(r.date), sales: Number(r.sales) }));
-          setWeeklySales(mapped);
-        })
-        .catch(err => console.error('Failed to load weekly sales:', err));
       // Fetch recent orders for branch
       fetch(`http://localhost:3000/api/order/branches/${branchId}`)
         .then(res => res.json())
@@ -107,18 +108,7 @@ export default function ManagerDashboard() {
   useEffect(() => {
     const branchId = localStorage.getItem('branch_id');
     if (branchId) {
-      let dateRangeParam = '';
-      if (dateRange === 'today') {
-        dateRangeParam = 'today';
-      } else if (dateRange === 'yesterday') {
-        dateRangeParam = 'yesterday';
-      } else if (dateRange === 'this-week') {
-        dateRangeParam = 'week';
-      } else if (dateRange === 'this-month') {
-        dateRangeParam = 'month';
-      } else if (dateRange === 'this-year') {
-        dateRangeParam = 'year';
-      }
+      const dateRangeParam = getDateRangeParam(dateRange);
 
       let url = `http://localhost:3000/api/manager/dashboard-stats/${branchId}`;
       const params = [];
@@ -136,22 +126,33 @@ export default function ManagerDashboard() {
     }
   }, [dateRange, productType]);
 
+  // Fetch weekly sales when filters change
+  useEffect(() => {
+    const branchId = localStorage.getItem('branch_id');
+    if (branchId) {
+      const dateRangeParam = getDateRangeParam(dateRange);
+
+      let url = `http://localhost:3000/api/manager/weekly-sales/${branchId}`;
+      const params = [];
+      if (dateRangeParam) params.push(`date_range=${dateRangeParam}`);
+      if (productType && productType !== 'all') params.push(`product_type_id=${productType}`);
+      if (params.length) url += '?' + params.join('&');
+
+      fetch(url)
+        .then(res => res.json())
+        .then((rows: { date: string; sales: number }[]) => {
+          const mapped = rows.map(r => ({ day: thaiWeekday(r.date), sales: Number(r.sales) }));
+          setWeeklySales(mapped);
+        })
+        .catch(err => console.error('Failed to load weekly sales:', err));
+    }
+  }, [dateRange, productType]);
+
   // Fetch top products when dateRange or productType changes
   useEffect(() => {
     const branchId = localStorage.getItem('branch_id');
     if (branchId) {
-      let dateRangeParam = '';
-      if (dateRange === 'today') {
-        dateRangeParam = 'today';
-      } else if (dateRange === 'yesterday') {
-        dateRangeParam = 'yesterday';
-      } else if (dateRange === 'this-week') {
-        dateRangeParam = 'week';
-      } else if (dateRange === 'this-month') {
-        dateRangeParam = 'month';
-      } else if (dateRange === 'this-year') {
-        dateRangeParam = 'year';
-      }
+      const dateRangeParam = getDateRangeParam(dateRange);
 
       let url = `http://localhost:3000/api/manager/top-products/${branchId}`;
       const params = [];
@@ -180,16 +181,6 @@ export default function ManagerDashboard() {
     { label: 'คำสั่งซื้อรวม', value: String(stats.total_orders), color: 'bg-green-500', icon: ShoppingBag },
     { label: 'คำสั่งซื้อที่ดำเนินการ', value: String(stats.in_progress_orders), color: 'bg-yellow-500', icon: Clock },
     { label: 'สินค้าที่ขายอยู่', value: String(stats.available_products), color: 'bg-purple-500', icon: Package }
-  ];
-
-  const salesData = [
-    { day: 'จ.', sales: 850 },
-    { day: 'อ.', sales: 920 },
-    { day: 'พ.', sales: 1100 },
-    { day: 'พฤ.', sales: 890 },
-    { day: 'ศ.', sales: 1300 },
-    { day: 'ส.', sales: 1500 },
-    { day: 'อา.', sales: 1200 }
   ];
 
   // weekly sales from backend (date string -> sales)
@@ -380,7 +371,7 @@ export default function ManagerDashboard() {
           {/* Sales Chart */}
           <div className="bg-white rounded-xl shadow-md p-6">
             <h2 className="text-xl mb-4 text-gray-900">ยอดขายรายสัปดาห์</h2>
-            {weeklySales.length > 0 && weeklySales.some(d => d.sales > 0) ? (
+            {weeklySales.length > 0 ? (
               <ResponsiveContainer width="100%" height={250}>
                 <BarChart data={weeklySales}>
                   <CartesianGrid strokeDasharray="3 3" />
@@ -390,20 +381,10 @@ export default function ManagerDashboard() {
                   <Bar dataKey="sales" fill="#4DA3FF" radius={[8, 8, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
-            ) : (dateRange !== 'custom' || productType !== 'all') ? (
-              <div className="flex items-center justify-center h-[250px]">
-                <p className="text-gray-500">ไม่มียอดขายสำหรับช่วงเวลา/ประเภทที่เลือก</p>
-              </div>
             ) : (
-              <ResponsiveContainer width="100%" height={250}>
-                <BarChart data={salesData}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="day" />
-                  <YAxis />
-                  <Tooltip />
-                  <Bar dataKey="sales" fill="#4DA3FF" radius={[8, 8, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
+              <div className="flex items-center justify-center h-[250px]">
+                <p className="text-gray-500">ไม่พบข้อมูลยอดขายรายสัปดาห์จากฐานข้อมูล</p>
+              </div>
             )}
           </div>
 

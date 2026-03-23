@@ -161,6 +161,30 @@ app.get('/api/vases', async (req, res) => {
   }
 });
 
+// All products (for manager product management page)
+app.get('/api/products', async (_req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `
+      SELECT
+        p.product_id,
+        p.product_name,
+        p.product_price,
+        p.product_img,
+        p.product_type_id,
+        pt.product_type_name
+      FROM product p
+      LEFT JOIN product_type pt ON pt.product_type_id = p.product_type_id
+      ORDER BY p.product_name
+      `
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error('❌ Products API Error:', err.message);
+    res.status(500).json({ error: 'Failed to load products', detail: err.message });
+  }
+});
+
 // Vase shapes by selected vase material product_id
 app.get('/api/vase-shapes', async (req, res) => {
   try {
@@ -180,6 +204,28 @@ app.get('/api/vase-shapes', async (req, res) => {
   }
 });
 
+// All vase shapes (for manager product management page)
+app.get('/api/vase-shapes/all', async (_req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `
+      SELECT
+        vase_id,
+        product_id,
+        vase_name,
+        vase_img,
+        vase_price
+      FROM vase
+      ORDER BY vase_name
+      `
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error('❌ All Vase Shapes API Error:', err.message);
+    res.status(500).json({ error: 'Failed to load all vase shapes', detail: err.message });
+  }
+});
+
 // Vase colors
 app.get('/api/vase-colors', async (_req, res) => {
   try {
@@ -194,13 +240,31 @@ app.get('/api/vase-colors', async (_req, res) => {
 // Main flowers (from flower table)
 app.get('/api/main-flowers', async (_req, res) => {
   try {
-    const [nameCols] = await pool.query("SHOW COLUMNS FROM flower LIKE 'flower_name'");
-    let rows;
-    if (Array.isArray(nameCols) && nameCols.length > 0) {
-      [rows] = await pool.query('SELECT flower_id, flower_name, flower_price FROM flower ORDER BY flower_name');
-    } else {
-      [rows] = await pool.query("SELECT flower_id, CONCAT('ดอกหลัก #', flower_id) AS flower_name, flower_price FROM flower ORDER BY flower_id");
-    }
+    const nameColumn = await getExistingColumnName('flower', ['flower_name', 'name']);
+    const priceColumn = await getExistingColumnName('flower', ['flower_price', 'price']);
+    const imageColumn = await getExistingColumnName('flower', ['flower_img', 'image', 'img', 'flower_image_url']);
+    const importDateColumn = await getExistingColumnName('flower', ['import_date', 'date_imported', 'imported_at', 'received_date', 'entry_date', 'created_at']);
+    const expiryDateColumn = await getExistingColumnName('flower', ['expiry_date', 'expire_date', 'expiration_date', 'expired_at', 'best_before']);
+
+    const nameSelectSql = nameColumn ? nameColumn : "CONCAT('ดอกหลัก #', flower_id)";
+    const priceSelectSql = priceColumn ? priceColumn : '0';
+    const imageSelectSql = imageColumn ? imageColumn : 'NULL';
+    const importDateSelectSql = importDateColumn ? importDateColumn : 'NULL';
+    const expiryDateSelectSql = expiryDateColumn ? expiryDateColumn : 'NULL';
+
+    const [rows] = await pool.query(
+      `
+      SELECT
+        flower_id,
+        ${nameSelectSql} AS flower_name,
+        ${priceSelectSql} AS flower_price,
+        ${imageSelectSql} AS flower_img,
+        ${importDateSelectSql} AS import_date,
+        ${expiryDateSelectSql} AS expiry_date
+      FROM flower
+      ORDER BY flower_name
+      `
+    );
     res.json(rows);
   } catch (err) {
     console.error('❌ Main Flowers API Error:', err.message);
@@ -211,7 +275,32 @@ app.get('/api/main-flowers', async (_req, res) => {
 // Filler flowers (from filler_flower table)
 app.get('/api/filler-flowers', async (_req, res) => {
   try {
-    const [rows] = await pool.query('SELECT filler_flower_id AS flower_id, filler_flower_name AS flower_name FROM filler_flower ORDER BY filler_flower_name');
+    const nameColumn = await getExistingColumnName('filler_flower', ['filler_flower_name', 'flower_name', 'name']);
+    const priceColumn = await getExistingColumnName('filler_flower', ['filler_flower_price', 'flower_price', 'price']);
+    const imageColumn = await getExistingColumnName('filler_flower', ['filler_flower_img', 'flower_img', 'image', 'img', 'filler_image_url']);
+    const importDateColumn = await getExistingColumnName('filler_flower', ['import_date', 'date_imported', 'imported_at', 'received_date', 'entry_date', 'created_at']);
+    const expiryDateColumn = await getExistingColumnName('filler_flower', ['expiry_date', 'expire_date', 'expiration_date', 'expired_at', 'best_before']);
+
+    const nameSelectSql = nameColumn ? nameColumn : "CONCAT('ดอกแซม #', filler_flower_id)";
+    const priceSelectSql = priceColumn ? priceColumn : '0';
+    const imageSelectSql = imageColumn ? imageColumn : 'NULL';
+    const importDateSelectSql = importDateColumn ? importDateColumn : 'NULL';
+    const expiryDateSelectSql = expiryDateColumn ? expiryDateColumn : 'NULL';
+
+    const [rows] = await pool.query(
+      `
+      SELECT
+        filler_flower_id AS flower_id,
+        ${nameSelectSql} AS flower_name,
+        ${priceSelectSql} AS flower_price,
+        ${imageSelectSql} AS filler_flower_img,
+        ${imageSelectSql} AS flower_img,
+        ${importDateSelectSql} AS import_date,
+        ${expiryDateSelectSql} AS expiry_date
+      FROM filler_flower
+      ORDER BY flower_name
+      `
+    );
     res.json(rows);
   } catch (err) {
     console.error('❌ Filler Flowers API Error:', err.message);
@@ -307,13 +396,21 @@ app.get('/api/wrappings', async (req, res) => {
       return res.status(404).json({ error: 'Wrapping material table not found' });
     }
 
+    const imageColumn = await getExistingColumnName(wrappingTable, [
+      'wrapping_material_img',
+      'wrapping_img',
+      'image',
+      'img',
+      'material_img',
+    ]);
+
     const [rows] = await pool.query(
       `
       SELECT
         wrapping_id,
         wrapping_type_id,
         wrapping_name,
-        wrapping_img,
+        ${imageColumn ? `${imageColumn} AS wrapping_material_img, ${imageColumn} AS wrapping_img` : 'NULL AS wrapping_material_img, NULL AS wrapping_img'},
         wrapping_price
       FROM ${wrappingTable}
       WHERE wrapping_type_id = ?
@@ -326,6 +423,42 @@ app.get('/api/wrappings', async (req, res) => {
   } catch (err) {
     console.error('❌ Wrapping Materials API Error:', err.message);
     res.status(500).json({ error: 'Failed to load wrapping materials', detail: err.message });
+  }
+});
+
+// All wrappings (for manager product management page)
+app.get('/api/wrappings/all', async (_req, res) => {
+  try {
+    const wrappingTable = await getExistingTableName(['wrapping_material', 'wrapping']);
+    if (!wrappingTable) {
+      return res.status(404).json({ error: 'Wrapping material table not found' });
+    }
+
+    const imageColumn = await getExistingColumnName(wrappingTable, [
+      'wrapping_material_img',
+      'wrapping_img',
+      'image',
+      'img',
+      'material_img',
+    ]);
+
+    const [rows] = await pool.query(
+      `
+      SELECT
+        wrapping_id,
+        wrapping_type_id,
+        wrapping_name,
+        ${imageColumn ? `${imageColumn} AS wrapping_material_img, ${imageColumn} AS wrapping_img` : 'NULL AS wrapping_material_img, NULL AS wrapping_img'},
+        wrapping_price
+      FROM ${wrappingTable}
+      ORDER BY wrapping_name
+      `
+    );
+
+    res.json(rows);
+  } catch (err) {
+    console.error('❌ All Wrappings API Error:', err.message);
+    res.status(500).json({ error: 'Failed to load all wrapping materials', detail: err.message });
   }
 });
 
@@ -1712,6 +1845,57 @@ app.post('/api/employee/login', async (req, res) => {
   }
 });
 
+// Employees for branch manager page (current branch only)
+app.get('/api/manager/branch-employees/:branchId', async (req, res) => {
+  try {
+    const branchId = Number(req.params.branchId);
+    if (Number.isNaN(branchId) || branchId <= 0) {
+      return res.status(400).json({ error: 'Invalid branch ID' });
+    }
+
+    const roleTable = await getExistingTableName(['role', 'roles']);
+    const roleNameColumn = roleTable ? await getExistingColumnName(roleTable, ['role_name', 'name']) : null;
+    const phoneColumn = await getExistingColumnName('employee', ['phone', 'phone_number', 'mobile', 'tel']);
+    const salaryColumn = await getExistingColumnName('employee', ['salary', 'base_salary', 'monthly_salary']);
+    const createdAtColumn = await getExistingColumnName('employee', ['created_at', 'createdAt', 'join_date', 'hired_at']);
+    const profileUrlColumn = await getExistingColumnName('employee', ['employee_profile_url', 'profile_url', 'profile_image_url']);
+
+    const roleJoinSql = roleTable ? `LEFT JOIN ${roleTable} r ON r.role_id = e.role_id` : '';
+    const roleNameSelectSql = roleNameColumn ? `r.${roleNameColumn}` : 'NULL';
+    const phoneSelectSql = phoneColumn ? `e.${phoneColumn}` : 'NULL';
+    const salarySelectSql = salaryColumn ? `e.${salaryColumn}` : '0';
+    const createdAtSelectSql = createdAtColumn ? `e.${createdAtColumn}` : 'NULL';
+    const profileUrlSelectSql = profileUrlColumn ? `e.${profileUrlColumn}` : 'NULL';
+
+    const sql = `
+      SELECT
+        e.employee_id,
+        e.username,
+        e.role_id,
+        e.branch_id,
+        e.name,
+        e.surname,
+        ${profileUrlSelectSql} AS employee_profile_url,
+        ${phoneSelectSql} AS phone,
+        ${salarySelectSql} AS salary,
+        ${createdAtSelectSql} AS created_at,
+        b.branch_name,
+        ${roleNameSelectSql} AS role_name
+      FROM employee e
+      LEFT JOIN branch b ON b.branch_id = e.branch_id
+      ${roleJoinSql}
+      WHERE e.branch_id = ?
+      ORDER BY e.role_id ASC, e.employee_id ASC
+    `;
+
+    const [rows] = await pool.query(sql, [branchId]);
+    return res.json(rows);
+  } catch (err) {
+    console.error('❌ Branch employees error:', err.message);
+    return res.status(500).json({ error: 'Server error', detail: err.message });
+  }
+});
+
 // Manager Dashboard Stats endpoint
 app.get('/api/manager/dashboard-stats/:branchId', async (req, res) => {
   try {
@@ -2813,26 +2997,104 @@ app.get('/api/executive/category-sales', async (req, res) => {
 app.get('/api/manager/weekly-sales/:branchId', async (req, res) => {
   try {
     const { branchId } = req.params;
-    const params = [Number(branchId)];
+    const { date_range, product_type_id } = req.query || {};
+    const baseParams = [Number(branchId)];
     const ordersTable = 'orders';
+
+    // Build date condition based on date_range param
+    let dateCondition = '';
+    const dateParams = [];
+    if (date_range === 'today') {
+      dateCondition = ' AND DATE(o.created_at) = CURDATE()';
+    } else if (date_range === 'yesterday') {
+      dateCondition = ' AND DATE(o.created_at) = DATE_SUB(CURDATE(), INTERVAL 1 DAY)';
+    } else if (date_range === 'week') {
+      dateCondition = ' AND YEARWEEK(o.created_at) = YEARWEEK(CURDATE())';
+    } else if (date_range === 'month') {
+      dateCondition = ' AND YEAR(o.created_at) = YEAR(CURDATE()) AND MONTH(o.created_at) = MONTH(CURDATE())';
+    } else if (date_range === 'year') {
+      dateCondition = ' AND YEAR(o.created_at) = YEAR(CURDATE())';
+    } else if (date_range && /^\d{4}-\d{2}$/.test(String(date_range))) {
+      const [yr, mo] = String(date_range).split('-');
+      dateCondition = ' AND YEAR(o.created_at) = ? AND MONTH(o.created_at) = ?';
+      dateParams.push(Number(yr), Number(mo));
+    }
+
+    // Build product type filter condition
+    let productTypeCondition = '';
+    const productTypeParams = [];
+    if (product_type_id) {
+      const ptId = Number(product_type_id);
+      if (!Number.isNaN(ptId)) {
+        productTypeCondition = ' AND EXISTS (SELECT 1 FROM shopping_cart sc JOIN product pr ON pr.product_id = sc.product_id WHERE pr.product_type_id = ? AND sc.order_id = o.order_id)';
+        productTypeParams.push(ptId);
+      }
+    }
+
+    const commonWhere = `o.branch_id = ?${dateCondition}${productTypeCondition}`;
+    const commonParams = [...baseParams, ...dateParams, ...productTypeParams];
+
+    const formatLocalDate = (date) => {
+      const y = date.getFullYear();
+      const m = String(date.getMonth() + 1).padStart(2, '0');
+      const d = String(date.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    };
+
+    const toIsoDate = (value) => {
+      if (!value) return null;
+      if (value instanceof Date && !Number.isNaN(value.getTime())) {
+        return formatLocalDate(value);
+      }
+      const s = String(value);
+      const m = s.match(/\d{4}-\d{2}-\d{2}/);
+      if (!m) return null;
+      const iso = m[0];
+      const parsed = new Date(`${iso}T00:00:00`);
+      if (Number.isNaN(parsed.getTime())) return null;
+      return iso;
+    };
+
+    // For "all" range, anchor to latest available order date in DB for this branch/filter.
+    const shouldUseLatestAnchor = !date_range || date_range === 'custom' || date_range === 'all';
+    let anchorDate = null;
+    if (shouldUseLatestAnchor) {
+      const latestSql = `
+        SELECT MAX(DATE(o.created_at)) AS latest_date
+        FROM ${ordersTable} o
+        WHERE ${commonWhere}
+      `;
+      const [[latestRow]] = await pool.query(latestSql, commonParams);
+      anchorDate = toIsoDate(latestRow?.latest_date) || null;
+    }
+
+    const anchorDateExpr = anchorDate ? '?' : 'CURDATE()';
 
     const sql = `
       SELECT DATE(o.created_at) AS date, IFNULL(SUM(o.total_amount),0) AS sales
       FROM ${ordersTable} o
-      WHERE o.branch_id = ? AND DATE(o.created_at) >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)
+      WHERE ${commonWhere}
+        AND DATE(o.created_at) >= DATE_SUB(${anchorDateExpr}, INTERVAL 6 DAY)
+        AND DATE(o.created_at) <= ${anchorDateExpr}
       GROUP BY DATE(o.created_at)
       ORDER BY DATE(o.created_at)
     `;
 
-    const [rows] = await pool.query(sql, params);
+    let queryParams = [...commonParams];
+    if (anchorDate) {
+      queryParams = [...queryParams, anchorDate, anchorDate];
+    }
 
-    // Build full 7-day list (from 6 days ago -> today) and fill missing days with 0
+    const [rows] = await pool.query(sql, queryParams);
+
+    const parsedBaseDate = anchorDate ? new Date(`${anchorDate}T00:00:00`) : new Date();
+    const baseDate = Number.isNaN(parsedBaseDate.getTime()) ? new Date() : parsedBaseDate;
     const results = [];
     for (let i = 6; i >= 0; i--) {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
-      const iso = d.toISOString().slice(0, 10);
-      const found = rows.find(r => String(r.date) === iso);
+      const d = new Date(baseDate);
+      d.setDate(baseDate.getDate() - i);
+      const iso = formatLocalDate(d);
+      const found = rows.find(r => toIsoDate(r.date) === iso);
       results.push({ date: iso, sales: found ? Number(found.sales) : 0 });
     }
 
@@ -2891,9 +3153,19 @@ app.get('/api/manager/top-products/:branchId', async (req, res) => {
       SELECT pr.product_id,
              pr.product_name,
              IFNULL(${qtySoldExpr},0) AS qty_sold,
-             IFNULL(SUM(sc.${cartTotalPriceColumn}),0) AS revenue,
+             IFNULL(SUM(
+               CASE
+                 WHEN oct.cart_total > 0 THEN (o.total_amount * sc.${cartTotalPriceColumn} / oct.cart_total)
+                 ELSE 0
+               END
+             ),0) AS revenue,
              pt.product_type_name AS product_type
       FROM shopping_cart sc
+      JOIN (
+        SELECT order_id, SUM(${cartTotalPriceColumn}) AS cart_total
+        FROM shopping_cart
+        GROUP BY order_id
+      ) oct ON oct.order_id = sc.order_id
       JOIN ${ordersTable} o ON sc.order_id = o.order_id
       JOIN product pr ON pr.product_id = sc.product_id
       LEFT JOIN product_type pt ON pt.product_type_id = pr.product_type_id

@@ -13,11 +13,13 @@ import { ImageWithFallback } from './figma/ImageWithFallback';
 type BouquetKind = 'normal' | 'money-envelope';
 type MoneyBillValue = 20 | 50 | 100 | 500 | 1000;
 type MoneyFoldStyle = 'fan' | 'rose' | 'heart' | 'star';
+type FlowerPreviewSource = 'main' | 'filler' | null;
 
 type FlowerChoice = {
   id: number | null;
   label: string;
   unitPrice?: number;
+  imageUrl?: string;
 };
 
 type MainFlowerSelection = {
@@ -25,6 +27,7 @@ type MainFlowerSelection = {
   label: string;
   unitPrice: number;
   count: number;
+  imageUrl?: string;
 };
 
 export interface CustomArrangementResult {
@@ -95,6 +98,15 @@ const inferBouquetKindFromProductName = (name: string): BouquetKind => {
 
 const getFillerFlowerUnitPrice = (label: string) => fillerFlowerUnitPrices[normalizeLabel(label)] ?? 45;
 
+const resolveDbImageUrl = (raw?: string | null) => {
+  const value = String(raw || '').trim();
+  if (!value) return '';
+  if (value.startsWith('http://') || value.startsWith('https://') || value.startsWith('data:')) {
+    return value;
+  }
+  return `http://localhost:3000${value.startsWith('/') ? '' : '/'}${value}`;
+};
+
 const getMinimumMoneyAmount = (billValue: MoneyBillValue) => Math.max(300, billValue);
 
 const normalizeMoneyAmount = (amount: number, billValue: MoneyBillValue) => {
@@ -129,6 +141,7 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
 
   const [mainFlowers, setMainFlowers] = useState<MainFlowerSelection[]>([]);
   const [fillerFlower, setFillerFlower] = useState<FlowerChoice | null>(null);
+  const [flowerPreviewSource, setFlowerPreviewSource] = useState<FlowerPreviewSource>(null);
 
   const [selectedWrappingType, setSelectedWrappingType] = useState<WrappingType | null>(null);
   const [selectedWrappingMaterial, setSelectedWrappingMaterial] = useState<WrappingMaterial | null>(null);
@@ -194,6 +207,7 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
     setVaseShapeOptions([]);
     setMainFlowers([]);
     setFillerFlower(null);
+    setFlowerPreviewSource(null);
     setSelectedWrappingType(null);
     setSelectedWrappingMaterial(null);
     setWrappingMaterials([]);
@@ -263,6 +277,7 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
     if (!needsFlowerFlow) {
       setMainFlowers([]);
       setFillerFlower(null);
+      setFlowerPreviewSource(null);
     }
   }, [isBouquet, isMoneyBouquet, needsFlowerFlow]);
 
@@ -328,6 +343,7 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
         id: ft.flower_id,
         label: ft.flower_name,
         unitPrice: parseFlowerPrice(ft.flower_price),
+        imageUrl: resolveDbImageUrl(ft.flower_img),
       }));
     }
     return [
@@ -339,7 +355,11 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
 
   const fillerFlowerOptions = useMemo<FlowerChoice[]>(() => {
     if (fillerFlowerTypes.length > 0) {
-      return fillerFlowerTypes.map((ft: DbFlowerType) => ({ id: ft.flower_id, label: ft.flower_name }));
+      return fillerFlowerTypes.map((ft: DbFlowerType) => ({
+        id: ft.flower_id,
+        label: ft.flower_name,
+        imageUrl: resolveDbImageUrl(ft.filler_flower_img || ft.flower_img),
+      }));
     }
 
     return [
@@ -448,7 +468,13 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
     }, products[0]);
   }, [estimatedPrice, isVase, productType, products, selectedBouquetProduct, selectedVaseMaterial]);
 
-  const previewImage = useMemo(() => {
+  const selectedMainFlowerPreviewImage = useMemo(() => {
+    const lastSelectedFlower = mainFlowers[mainFlowers.length - 1];
+    if (!lastSelectedFlower) return '';
+    return mainFlowerOptions.find((option) => option.label === lastSelectedFlower.label)?.imageUrl || '';
+  }, [mainFlowerOptions, mainFlowers]);
+
+  const basePreviewImage = useMemo(() => {
     if (isVase) {
       if (selectedVaseShape?.vase_img) return selectedVaseShape.vase_img;
       if (selectedVaseMaterial?.product_img) return selectedVaseMaterial.product_img;
@@ -459,6 +485,29 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
     if (isVase) return vaseImage;
     return bouquetImage;
   }, [isMoneyBouquet, isVase, resolvedProduct, selectedVaseMaterial, selectedVaseShape]);
+
+  const previewImage = useMemo(() => {
+    if (isFlowerSelectionStep || isFlowerCountStep) {
+      if (flowerPreviewSource === 'filler' && fillerFlower?.imageUrl) {
+        return fillerFlower.imageUrl;
+      }
+      if (selectedMainFlowerPreviewImage) {
+        return selectedMainFlowerPreviewImage;
+      }
+      if (fillerFlower?.imageUrl) {
+        return fillerFlower.imageUrl;
+      }
+      return basePreviewImage;
+    }
+    return basePreviewImage;
+  }, [
+    basePreviewImage,
+    fillerFlower?.imageUrl,
+    flowerPreviewSource,
+    isFlowerCountStep,
+    isFlowerSelectionStep,
+    selectedMainFlowerPreviewImage,
+  ]);
 
   const stepLabel = useMemo(() => {
     if (currentStep === 2) {
@@ -625,7 +674,7 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
       bouquetStyleId: isNormalBouquet ? 1 : null,
       vaseColorId: null,
       price: estimatedPrice,
-      imageUrl: previewImage,
+      imageUrl: basePreviewImage,
       flowerTypeIds: flowerIds,
       flowerNames,
       customization,
@@ -663,8 +712,16 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
 
         <div className="grid md:grid-cols-2 gap-8 lg:gap-10 items-start">
           <div>
-            <div className="w-full max-w-xl mx-auto rounded-3xl overflow-hidden shadow-xl mb-5 bg-white border border-[#AEE6FF]/40">
-              <ImageWithFallback src={previewImage} alt="ตัวอย่างสินค้า" className="w-full h-auto" />
+            <div
+              className="mx-auto rounded-3xl overflow-hidden shadow-xl mb-5 bg-white border border-[#AEE6FF]/40"
+              style={{ width: '300px', height: '300px', minWidth: '300px', minHeight: '300px', maxWidth: '300px', maxHeight: '300px' }}
+            >
+              <ImageWithFallback
+                src={previewImage}
+                alt="ตัวอย่างสินค้า"
+                className="w-full h-full"
+                style={{ width: '300px', height: '300px', minWidth: '300px', minHeight: '300px', maxWidth: '300px', maxHeight: '300px', objectFit: 'cover' }}
+              />
             </div>
 
             <div className="bg-white rounded-3xl p-6 sm:p-7 shadow-xl border border-[#AEE6FF]/40 ring-1 ring-[#DFF4FF] space-y-1 text-gray-700">
@@ -959,6 +1016,7 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
                         <button
                           key={`main-${flower.label}`}
                           onClick={() => {
+                            setFlowerPreviewSource('main');
                             setMainFlowers((prev) => {
                               const exists = prev.find((item) => item.label === flower.label);
                               if (exists) {
@@ -974,6 +1032,7 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
                                   label: flower.label,
                                   unitPrice: parseFlowerPrice(flower.unitPrice),
                                   count: 1,
+                                  imageUrl: flower.imageUrl,
                                 },
                               ];
                             });
@@ -1004,6 +1063,7 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
                         type="button"
                         onClick={() => {
                           setFillerFlower(null);
+                          setFlowerPreviewSource('main');
                         }}
                         className="text-sm text-red-500"
                       >
@@ -1017,7 +1077,10 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
                       return (
                         <button
                           key={`filler-${flower.label}`}
-                          onClick={() => setFillerFlower(flower)}
+                          onClick={() => {
+                            setFillerFlower(flower);
+                            setFlowerPreviewSource('filler');
+                          }}
                           disabled={isSameAsMain}
                           className={`p-3 rounded-xl border-2 transition-all ${isSameAsMain ? 'opacity-40 cursor-not-allowed' : ''}`}
                           style={getChoiceStyle(fillerFlower?.label === flower.label)}
@@ -1134,17 +1197,32 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
                     <h3 className="text-gray-800 mb-3">เลือกแบบกระดาษห่อ</h3>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       {wrappingMaterials.map((option) => (
+                        (() => {
+                          const wrappingImage = resolveDbImageUrl(option.wrapping_material_img || option.wrapping_img);
+                          return (
                         <button
                           key={option.wrapping_id}
                           onClick={() => setSelectedWrappingMaterial(option)}
                           className="p-3 rounded-xl border-2 transition-all text-left"
                           style={getChoiceStyle(selectedWrappingMaterial?.wrapping_id === option.wrapping_id)}
                         >
+                          {wrappingImage && (
+                            <div className="mb-2 rounded-lg overflow-hidden border border-white/30 bg-white/20" style={{ width: '100%', height: '96px' }}>
+                              <ImageWithFallback
+                                src={wrappingImage}
+                                alt={option.wrapping_name}
+                                className="w-full h-full"
+                                style={{ objectFit: 'cover' }}
+                              />
+                            </div>
+                          )}
                           <div>{option.wrapping_name}</div>
                           <div className="text-xs mt-1" style={{ color: selectedWrappingMaterial?.wrapping_id === option.wrapping_id ? 'rgba(255,255,255,0.9)' : '#6b7280' }}>
                             ฿{Number(option.wrapping_price ?? 0).toLocaleString()}
                           </div>
                         </button>
+                          );
+                        })()
                       ))}
                     </div>
                     {wrappingMaterials.length === 0 && (
@@ -1160,19 +1238,32 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
                 <div>
                   <h3 className="text-gray-800 mb-3">เลือกริบบิ้น</h3>
                   <div className="grid grid-cols-2 gap-3">
-                    {ribbonOptions.map((style) => (
-                      <button
-                        key={style.ribbon_id}
-                        onClick={() => {
-                          setSelectedRibbon(style);
-                          setSelectedRibbonColor(null);
-                        }}
-                        className="p-3 rounded-xl border-2 transition-all"
-                        style={getChoiceStyle(selectedRibbon?.ribbon_id === style.ribbon_id)}
-                      >
-                        {style.ribbon_name}
-                      </button>
-                    ))}
+                    {ribbonOptions.map((style) => {
+                      const ribbonImage = resolveDbImageUrl(style.ribbon_img);
+                      return (
+                        <button
+                          key={style.ribbon_id}
+                          onClick={() => {
+                            setSelectedRibbon(style);
+                            setSelectedRibbonColor(null);
+                          }}
+                          className="p-3 rounded-xl border-2 transition-all"
+                          style={getChoiceStyle(selectedRibbon?.ribbon_id === style.ribbon_id)}
+                        >
+                          {ribbonImage && (
+                            <div className="mb-2 rounded-lg overflow-hidden border border-white/30 bg-white/20" style={{ width: '100%', height: '96px' }}>
+                              <ImageWithFallback
+                                src={ribbonImage}
+                                alt={style.ribbon_name}
+                                className="w-full h-full"
+                                style={{ objectFit: 'cover' }}
+                              />
+                            </div>
+                          )}
+                          <div>{style.ribbon_name}</div>
+                        </button>
+                      );
+                    })}
                   </div>
                   {ribbonOptions.length === 0 && (
                     <p className="text-sm text-red-500 mt-2">ไม่พบรายการริบบิ้นในระบบ</p>
@@ -1236,19 +1327,32 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
                     <div>
                       <h3 className="text-gray-800 mb-3">เลือกแบบการ์ด</h3>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        {cardOptions.map((card) => (
-                          <button
-                            key={card.card_id}
-                            onClick={() => setSelectedCard(card)}
-                            className="p-3 rounded-xl border-2 transition-all text-left"
-                            style={getChoiceStyle(selectedCard?.card_id === card.card_id)}
-                          >
-                            <div>{card.card_name}</div>
-                            <div className="text-xs mt-1" style={{ color: selectedCard?.card_id === card.card_id ? 'rgba(255,255,255,0.9)' : '#6b7280' }}>
-                              ฿{Number(card.card_price ?? 0).toLocaleString()}
-                            </div>
-                          </button>
-                        ))}
+                        {cardOptions.map((card) => {
+                          const cardImage = resolveDbImageUrl(card.card_img);
+                          return (
+                            <button
+                              key={card.card_id}
+                              onClick={() => setSelectedCard(card)}
+                              className="p-3 rounded-xl border-2 transition-all text-left"
+                              style={getChoiceStyle(selectedCard?.card_id === card.card_id)}
+                            >
+                              {cardImage && (
+                                <div className="mb-2 rounded-lg overflow-hidden border border-white/30 bg-white/20" style={{ width: '100%', height: '96px' }}>
+                                  <ImageWithFallback
+                                    src={cardImage}
+                                    alt={card.card_name}
+                                    className="w-full h-full"
+                                    style={{ objectFit: 'cover' }}
+                                  />
+                                </div>
+                              )}
+                              <div>{card.card_name}</div>
+                              <div className="text-xs mt-1" style={{ color: selectedCard?.card_id === card.card_id ? 'rgba(255,255,255,0.9)' : '#6b7280' }}>
+                                ฿{Number(card.card_price ?? 0).toLocaleString()}
+                              </div>
+                            </button>
+                          );
+                        })}
                       </div>
                       {cardOptions.length === 0 && (
                         <div className="rounded-xl bg-amber-50 text-amber-700 p-3 text-sm mt-3">

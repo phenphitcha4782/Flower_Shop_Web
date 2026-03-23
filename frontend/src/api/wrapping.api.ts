@@ -7,6 +7,7 @@ export type WrappingMaterial = {
   wrapping_id: number;
   wrapping_type_id: number;
   wrapping_name: string;
+  wrapping_material_img?: string;
   wrapping_img?: string;
   wrapping_price: number;
 };
