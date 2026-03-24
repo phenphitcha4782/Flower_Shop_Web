@@ -34,44 +34,27 @@ interface ComplaintItem {
   status: 'pending' | 'in-progress' | 'resolved';
 }
 
+interface LowRatingComplaint {
+  complaint_id: string;
+  order_id: number;
+  order_code: string;
+  employee_id: number;
+  employee_name: string;
+  employee_role: string;
+  branch_id: number;
+  branch_name: string;
+  rating: number;
+  rating_type: string;
+  comment: string | null;
+  created_at: string;
+}
 
-const complaintSeed: ComplaintItem[] = [
-  {
-    id: 'CMP-001',
-    orderCode: 'ORD10623591',
-    branch: 'กรุงเทพและปริมณฑล',
-    employeeRole: 'cashier',
-    employeeName: 'สมชาย ใจดี',
-    orderScore: 2,
-    reason: 'คุณภาพสินค้าไม่ดี',
-    status: 'pending'
-  },
-  {
-    id: 'CMP-002',
-    orderCode: 'ORD10623644',
-    branch: 'แพร่',
-    employeeRole: 'rider',
-    employeeName: 'ประยุทธ ส่งไว',
-    orderScore: 1,
-    reason: 'ส่งล่าช้า',
-    status: 'in-progress'
-  },
-  {
-    id: 'CMP-003',
-    orderCode: 'ORD10623802',
-    branch: 'พิจิตร',
-    employeeRole: 'florist',
-    employeeName: 'สมหญิง รักดอกไม้',
-    orderScore: 3,
-    reason: 'จัดช่อไม่ตรงแบบ',
-    status: 'resolved'
-  }
-];
 
 export default function ManagerEmployees() {
   const navigate = useNavigate();
   const [branchName, setBranchName] = useState('');
   const [employees, setEmployees] = useState<EmployeeItem[]>([]);
+  const [complaints, setComplaints] = useState<LowRatingComplaint[]>([]);
   const [loadingEmployees, setLoadingEmployees] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [roleFilter, setRoleFilter] = useState<'all' | EmployeeRole>('all');
@@ -227,6 +210,19 @@ export default function ManagerEmployees() {
       .catch((err) => {
         console.error('Failed to load branch employees:', err);
         setEmployees([]);
+      });
+
+    // Fetch low-rating complaints for this branch
+    fetch(`http://localhost:3000/api/complaints/low-ratings?branch_id=${branchId}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success && Array.isArray(data.complaints)) {
+          setComplaints(data.complaints);
+        }
+      })
+      .catch((err) => {
+        console.error('Failed to load complaints:', err);
+        setComplaints([]);
       })
       .finally(() => setLoadingEmployees(false));
   }, []);
@@ -301,12 +297,23 @@ export default function ManagerEmployees() {
   ];
 
   const filteredComplaints = useMemo(() => {
-    return complaintSeed.filter((item) => {
-      const inBranch = branchName ? item.branch === branchName : false;
-      const statusMatch = complaintStatusFilter === 'all' || item.status === complaintStatusFilter;
-      return inBranch && statusMatch;
-    });
-  }, [branchName, complaintStatusFilter]);
+    return complaints
+      .map((complaint) => ({
+        id: complaint.complaint_id,
+        orderCode: complaint.order_code,
+        branch: complaint.branch_name,
+        employeeRole: complaint.employee_role as EmployeeRole,
+        employeeName: complaint.employee_name,
+        orderScore: complaint.rating,
+        reason: complaint.comment || `${complaint.rating_type === 'delivery' ? 'ปัญหาการจัดส่ง' : 'ปัญหาคุณภาพสินค้า'}`,
+        status: 'pending' as const,
+      }))
+      .filter((item) => {
+        const inBranch = branchName ? item.branch === branchName : false;
+        const statusMatch = complaintStatusFilter === 'all' || item.status === complaintStatusFilter;
+        return inBranch && statusMatch;
+      });
+  }, [complaints, branchName, complaintStatusFilter]);
 
   const openComplaintCount = filteredComplaints.filter((item) => item.status !== 'resolved').length;
 

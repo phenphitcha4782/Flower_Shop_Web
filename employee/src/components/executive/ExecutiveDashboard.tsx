@@ -21,6 +21,7 @@ export default function ExecutiveDashboard() {
   ];
 
   const [monthlyRevenue, setMonthlyRevenue] = useState<{ month: string; revenue: number }[]>([]);
+  const [monthlyProfitLoss, setMonthlyProfitLoss] = useState<{ month: string; sell_amount: number; cost_amount: number; profit_loss: number }[]>([]);
   const [branchesList, setBranchesList] = useState<Array<{ branch_id: number; branch_name: string }>>([]);
   const [productTypes, setProductTypes] = useState<Array<{ product_type_id: number; product_type_name: string }>>([]);
 
@@ -29,10 +30,17 @@ export default function ExecutiveDashboard() {
 
   const branchPerformance = [
     // will be replaced by API data
-    ...(overview && Array.isArray(overview.branch_performance) ? overview.branch_performance.map((b: any) => ({ branch: b.branch_name, revenue: Number(b.revenue), orders: Number(b.orders), employee_count: Number(b.employee_count || 0), average_rating: Number(b.average_rating || 0) })) : [
-      { branch: 'พิจิตร', revenue: 58000, orders: 1250, employee_count: 8, average_rating: 4.8 },
-      { branch: 'แพร่', revenue: 42000, orders: 1100, employee_count: 6, average_rating: 4.5 },
-      { branch: 'สงขลา', revenue: 25450, orders: 895, employee_count: 5, average_rating: 4.2 }
+    ...(overview && Array.isArray(overview.branch_performance) ? overview.branch_performance.map((b: any) => ({
+      branch: b.branch_name,
+      revenue: Number(b.revenue),
+      orders: Number(b.orders),
+      employee_count: Number(b.employee_count || 0),
+      average_rating: Number(b.average_rating || 0),
+      profit_loss: Number(b.profit_loss || 0)
+    })) : [
+      { branch: 'พิจิตร', revenue: 58000, orders: 1250, employee_count: 8, average_rating: 4.8, profit_loss: 12650 },
+      { branch: 'แพร่', revenue: 42000, orders: 1100, employee_count: 6, average_rating: 4.5, profit_loss: 9300 },
+      { branch: 'สงขลา', revenue: 25450, orders: 895, employee_count: 5, average_rating: 4.2, profit_loss: -2400 }
     ])
   ];
 
@@ -152,6 +160,20 @@ export default function ExecutiveDashboard() {
         setMonthlyRevenue(mapped);
       })
       .catch(err => console.error('Failed to load monthly revenue:', err));
+
+    // fetch monthly profit/loss (sell - cost)
+    fetch(`http://localhost:3000/api/executive/monthly-profit-loss?${qp}`)
+      .then(res => res.json())
+      .then((data: Array<{ month: number; sell_amount: number; cost_amount: number; profit_loss: number }>) => {
+        const mapped = data.map(d => ({
+          month: monthNames[d.month - 1] || String(d.month),
+          sell_amount: Number(d.sell_amount || 0),
+          cost_amount: Number(d.cost_amount || 0),
+          profit_loss: Number(d.profit_loss || 0)
+        }));
+        setMonthlyProfitLoss(mapped);
+      })
+      .catch(err => console.error('Failed to load monthly profit/loss:', err));
 
     // fetch product/category sales (includes product_type) with filters
     fetch(`http://localhost:3000/api/executive/category-sales?${qp}`)
@@ -389,6 +411,32 @@ export default function ExecutiveDashboard() {
           </ResponsiveContainer>
         </div>
 
+        {/* Profit/Loss Chart */}
+        <div className="bg-white rounded-xl shadow-md p-6 mb-8">
+          <h2 className="text-xl mb-6 text-gray-900">แนวโน้มกำไร-ขาดทุนรายเดือน</h2>
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart data={monthlyProfitLoss}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="month" />
+              <YAxis />
+              <Tooltip
+                formatter={(value: number, name: string) => {
+                  if (name === 'profit_loss') return [`฿${value.toLocaleString()}`, 'กำไร/ขาดทุน'];
+                  if (name === 'sell_amount') return [`฿${value.toLocaleString()}`, 'ยอดขาย'];
+                  if (name === 'cost_amount') return [`฿${value.toLocaleString()}`, 'ต้นทุน'];
+                  return [`฿${value.toLocaleString()}`, name];
+                }}
+              />
+              <Legend />
+              <Bar dataKey="profit_loss" name="กำไร/ขาดทุน" radius={[8, 8, 0, 0]}>
+                {monthlyProfitLoss.map((entry, index) => (
+                  <Cell key={`profit-loss-${index}`} fill={entry.profit_loss >= 0 ? '#22C55E' : '#EF4444'} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+
         {/* Branch Performance & Product Categories */}
         <div className="grid md:grid-cols-2 gap-8 mb-8">
           {/* Branch Performance */}
@@ -403,6 +451,11 @@ export default function ExecutiveDashboard() {
                 <Tooltip />
                 <Legend />
                 <Bar yAxisId="left" dataKey="revenue" fill="#4DA3FF" radius={[8, 8, 0, 0]} name="รายได้ ($)" />
+                <Bar yAxisId="left" dataKey="profit_loss" name="กำไร/ขาดทุน" radius={[8, 8, 0, 0]}>
+                  {branchPerformance.map((entry, index) => (
+                    <Cell key={`branch-profit-${index}`} fill={entry.profit_loss >= 0 ? '#22C55E' : '#EF4444'} />
+                  ))}
+                </Bar>
                 <Bar yAxisId="right" dataKey="orders" fill="#14B8A6" radius={[8, 8, 0, 0]} name="คำสั่งซื้อ" />
               </BarChart>
             </ResponsiveContainer>
@@ -465,6 +518,7 @@ export default function ExecutiveDashboard() {
                   <th className="px-6 py-3 text-left text-sm text-gray-600">รายได้</th>
                   <th className="px-6 py-3 text-left text-sm text-gray-600">คำสั่งซื้อ</th>
                   <th className="px-6 py-3 text-left text-sm text-gray-600">มูลค่าเฉลี่ยต่อคำสั่งซื้อ</th>
+                  <th className="px-6 py-3 text-left text-sm text-gray-600">กำไร/ขาดทุน</th>
                   <th className="px-6 py-3 text-left text-sm text-gray-600">คะแนนเฉลี่ย</th>
                   <th className="px-6 py-3 text-left text-sm text-gray-600">พนักงาน</th>
                   <th className="px-6 py-3 text-left text-sm text-gray-600">สถานะ</th>
@@ -482,6 +536,9 @@ export default function ExecutiveDashboard() {
                     <td className="px-6 py-4 text-gray-900">฿{branch.revenue.toLocaleString()}</td>
                     <td className="px-6 py-4 text-gray-900">{branch.orders}</td>
                     <td className="px-6 py-4 text-gray-900">฿{branch.orders > 0 ? (branch.revenue / branch.orders).toFixed(2) : '0.00'}</td>
+                    <td className={`px-6 py-4 ${Number(branch.profit_loss || 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      {Number(branch.profit_loss || 0) >= 0 ? 'กำไร' : 'ขาดทุน'} ฿{Math.abs(Number(branch.profit_loss || 0)).toLocaleString()}
+                    </td>
                     <td className="px-6 py-4 text-gray-900">{Number(branch.average_rating || 0).toFixed(2)}</td>
                     <td className="px-6 py-4 text-gray-900">{branch.employee_count ?? 0}</td>
                     <td className="px-6 py-4">

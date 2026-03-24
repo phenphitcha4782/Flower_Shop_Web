@@ -1901,9 +1901,11 @@ app.get('/api/customers/dashboard', async (req, res) => {
         o.order_status,
         o.total_amount,
         o.created_at,
-        b.branch_name
+        b.branch_name,
+        CASE WHEN orv.review_id IS NOT NULL THEN 1 ELSE 0 END AS has_review
       FROM orders o
       LEFT JOIN branch b ON b.branch_id = o.branch_id
+      LEFT JOIN order_review orv ON orv.order_id = o.order_id
       WHERE o.customer_id = ?
       ORDER BY o.created_at DESC
       LIMIT 20
@@ -2081,6 +2083,7 @@ app.get('/api/customers/dashboard', async (req, res) => {
             total_amount: Number(row.total_amount || 0),
             created_at: row.created_at,
             branch_name: row.branch_name || '-',
+            has_review: Number(row.has_review || 0) === 1,
             items: orderItemsByOrderId.get(Number(row.order_id)) || [],
           }))
         : [],
@@ -2096,6 +2099,226 @@ app.get('/api/customers/dashboard', async (req, res) => {
   } catch (err) {
     console.error('❌ Customer Dashboard API Error:', err.message);
     return res.status(500).json({ error: 'Failed to load dashboard', detail: err.message });
+  }
+});
+
+// Save order review and update employee ratings
+app.post('/api/customers/order-review', async (req, res) => {
+  try {
+    const { order_id, rating_product, rating_rider, comment } = req.body || {};
+
+    // Validate input
+    if (!order_id || !Number.isFinite(Number(order_id)) || Number(order_id) <= 0) {
+      return res.status(400).json({ error: 'Invalid order_id' });
+    }
+
+    const productRating = Number(rating_product || 0);
+    const riderRating = Number(rating_rider || 0);
+    const reviewComment = String(comment || '').trim();
+
+    if (!Number.isFinite(productRating) || productRating < 0 || productRating > 5) {
+      return res.status(400).json({ error: 'rating_product must be between 0 and 5' });
+    }
+    if (!Number.isFinite(riderRating) || riderRating < 0 || riderRating > 5) {
+      return res.status(400).json({ error: 'rating_rider must be between 0 and 5' });
+    }
+
+    // Check if review already exists
+    const [existingReview] = await pool.query(
+      'SELECT review_id FROM order_review WHERE order_id = ? LIMIT 1',
+      [order_id]
+    );
+    if (existingReview && Array.isArray(existingReview) && existingReview.length > 0) {
+      return res.status(409).json({ error: 'Review for this order already exists' });
+    }
+
+    // Get order details and check if it's pickup or delivery
+    const [orderRows] = await pool.query(
+      'SELECT order_id, order_status FROM `orders` WHERE order_id = ? LIMIT 1',
+      [order_id]
+    );
+    if (!orderRows || !Array.isArray(orderRows) || orderRows.length === 0) {
+      return res.status(404).json({ error: 'Order not found' });
+    }
+
+    // Validate order status - only allow reviews for success or delivered orders
+    const orderStatus = String(orderRows[0].order_status || '').toLowerCase();
+    if (orderStatus !== 'success' && orderStatus !== 'delivered') {
+      return res.status(400).json({ error: 'This order cannot be reviewed. Only orders with status "success" or "delivered" can be reviewed.' });
+    }
+
+    // Check if order has delivery record
+    const [deliveryRows] = await pool.query(
+      'SELECT delivery_id, employee_id FROM delivery WHERE order_id = ? LIMIT 1',
+      [order_id]
+    );
+    const hasDelivery = Array.isArray(deliveryRows) && deliveryRows.length > 0;
+    const riderEmployeeId = hasDelivery && deliveryRows[0] ? deliveryRows[0].employee_id : null;
+
+    // Get florist (prepare) employee
+    const [prepareRows] = await pool.query(
+      'SELECT prepare_id, employee_id FROM prepare WHERE order_id = ? LIMIT 1',
+      [order_id]
+    );
+    const floristEmployeeId = (Array.isArray(prepareRows) && prepareRows[0]) ? prepareRows[0].employee_id : null;
+
+    // Insert review record
+    await pool.query(
+      'INSERT INTO order_review (order_id, rating_product, rating_rider, comment, created_at) VALUES (?, ?, ?, ?, NOW())',
+      [order_id, productRating, hasDelivery ? riderRating : null, reviewComment || null]
+    );
+
+    // Update employee ratings
+    // For pickup orders: update only florist rating
+    // For delivery orders: update both florist and rider ratings
+
+    if (floristEmployeeId) {
+      // Calculate new average rating for florist (from all their orders' product ratings)
+      const [floristRatingRows] = await pool.query(
+        `SELECT IFNULL(AVG(orv.rating_product), 0) AS avg_rating
+         FROM order_review orv
+         JOIN prepare p ON p.order_id = orv.order_id
+         WHERE p.employee_id = ? AND orv.rating_product IS NOT NULL`,
+        [floristEmployeeId]
+      );
+      const floristAvgRating = floristRatingRows[0] ? Number(floristRatingRows[0].avg_rating) : 0;
+      
+      const ratingColumn = await getExistingColumnName('employee', ['average_rating', 'rating']);
+      if (ratingColumn) {
+        await pool.query(
+          `UPDATE employee SET \`${ratingColumn}\` = ? WHERE employee_id = ?`,
+          [floristAvgRating.toFixed(2), floristEmployeeId]
+        );
+      }
+    }
+
+    if (hasDelivery && riderEmployeeId) {
+      // Calculate new average rating for rider (from all their orders' rider ratings)
+      const [riderRatingRows] = await pool.query(
+        `SELECT IFNULL(AVG(orv.rating_rider), 0) AS avg_rating
+         FROM order_review orv
+         JOIN delivery d ON d.order_id = orv.order_id
+         WHERE d.employee_id = ? AND orv.rating_rider IS NOT NULL`,
+        [riderEmployeeId]
+      );
+      const riderAvgRating = riderRatingRows[0] ? Number(riderRatingRows[0].avg_rating) : 0;
+      
+      const ratingColumn = await getExistingColumnName('employee', ['average_rating', 'rating']);
+      if (ratingColumn) {
+        await pool.query(
+          `UPDATE employee SET \`${ratingColumn}\` = ? WHERE employee_id = ?`,
+          [riderAvgRating.toFixed(2), riderEmployeeId]
+        );
+      }
+    }
+
+    return res.json({
+      success: true,
+      order_id,
+      message: 'Review saved successfully',
+      is_delivery: hasDelivery
+    });
+  } catch (err) {
+    console.error('❌ Order Review API Error:', err.message);
+    return res.status(500).json({ error: 'Failed to save review', detail: err.message });
+  }
+});
+
+// Get low-rating complaints (< 3 stars) for Branch Manager and Executive
+app.get('/api/complaints/low-ratings', async (req, res) => {
+  try {
+    const branchId = req.query.branch_id ? Number(req.query.branch_id) : null;
+    const status = req.query.status ? String(req.query.status).toLowerCase() : null;
+    const month = req.query.month ? Number(req.query.month) : null;
+    const year = req.query.year ? Number(req.query.year) : new Date().getFullYear();
+
+    let whereClause = `WHERE (orv.rating_product < 3 OR orv.rating_rider < 3)`;
+    const params = [];
+
+    if (branchId && Number.isFinite(branchId) && branchId > 0) {
+      whereClause += ` AND o.branch_id = ?`;
+      params.push(branchId);
+    }
+
+    if (month && Number.isFinite(month) && month >= 1 && month <= 12) {
+      whereClause += ` AND MONTH(orv.created_at) = ? AND YEAR(orv.created_at) = ?`;
+      params.push(month, year);
+    } else if (Number.isFinite(year) && year > 0) {
+      whereClause += ` AND YEAR(orv.created_at) = ?`;
+      params.push(year);
+    }
+
+    const [rows] = await pool.query(
+      `
+      SELECT
+        orv.review_id,
+        o.order_id,
+        o.order_code,
+        o.branch_id,
+        b.branch_name,
+        orv.rating_product,
+        orv.rating_rider,
+        orv.comment,
+        orv.created_at,
+        CASE 
+          WHEN orv.rating_product < 3 AND orv.rating_product IS NOT NULL THEN p.employee_id 
+          WHEN orv.rating_rider < 3 AND orv.rating_rider IS NOT NULL THEN d.employee_id 
+        END AS employee_id,
+        CASE 
+          WHEN orv.rating_product < 3 AND orv.rating_product IS NOT NULL THEN e1.name
+          WHEN orv.rating_rider < 3 AND orv.rating_rider IS NOT NULL THEN e2.name
+        END AS employee_name,
+        CASE 
+          WHEN orv.rating_product < 3 AND orv.rating_product IS NOT NULL THEN 'florist'
+          WHEN orv.rating_rider < 3 AND orv.rating_rider IS NOT NULL THEN 'rider'
+        END AS employee_role,
+        CASE 
+          WHEN orv.rating_product < 3 AND orv.rating_product IS NOT NULL THEN orv.rating_product
+          WHEN orv.rating_rider < 3 AND orv.rating_rider IS NOT NULL THEN orv.rating_rider
+        END AS rating,
+        CASE 
+          WHEN orv.rating_product < 3 AND orv.rating_product IS NOT NULL THEN 'product'
+          WHEN orv.rating_rider < 3 AND orv.rating_rider IS NOT NULL THEN 'delivery'
+        END AS rating_type
+      FROM order_review orv
+      JOIN \`order\` o ON o.order_id = orv.order_id
+      LEFT JOIN branch b ON b.branch_id = o.branch_id
+      LEFT JOIN prepare p ON p.order_id = o.order_id
+      LEFT JOIN delivery d ON d.order_id = o.order_id
+      LEFT JOIN employee e1 ON e1.employee_id = p.employee_id
+      LEFT JOIN employee e2 ON e2.employee_id = d.employee_id
+      ${whereClause}
+      ORDER BY orv.created_at DESC
+      LIMIT 100
+      `,
+      params
+    );
+
+    return res.json({
+      success: true,
+      total: Array.isArray(rows) ? rows.length : 0,
+      complaints: Array.isArray(rows)
+        ? rows
+            .filter((row) => row.employee_id && row.employee_name && row.employee_role && row.rating && row.rating_type)
+            .map((row) => ({
+              complaint_id: `${row.review_id}-${row.rating_type}`,
+              order_id: Number(row.order_id),
+              order_code: row.order_code,
+              employee_id: Number(row.employee_id),
+              employee_name: row.employee_name,
+              employee_role: row.employee_role,
+              branch_id: Number(row.branch_id || 0),
+              branch_name: row.branch_name || '-',
+              rating: Number(row.rating),
+              rating_type: row.rating_type,
+              comment: row.comment || null,
+              created_at: row.created_at,
+            }))
+        : [],
+    });
+  } catch (err) {
+    console.error('❌ Complaints API Error:', err.message);
+    return res.status(500).json({ error: 'Failed to fetch complaints', detail: err.message });
   }
 });
 
@@ -5337,6 +5560,93 @@ app.get('/api/executive/overview', async (req, res) => {
     const branchPerfParams = start_date && end_date ? [start_date, end_date, ...params, ...productFilterParams] : [...params, ...productFilterParams];
     const [branchPerf] = await pool.query(branchPerfSql, branchPerfParams);
 
+    // Branch-level cost aggregation for profit/loss
+    const cartQtyColumn = await getExistingColumnName('shopping_cart', ['qty', 'quantity']);
+    const productCostColumn = await getExistingColumnName('product', ['cost_price', 'product_cost_price']);
+    const flowerCostColumn = await getExistingColumnName('flower', ['cost_price', 'flower_cost_price']);
+    const flowerQtyColumn = await getExistingColumnName('flower_detail', ['quantity', 'qty', 'stem_count']);
+    const fillerCostColumn = await getExistingColumnName('filler_flower', ['cost_price', 'filler_flower_cost_price']);
+    const fillerQtyColumn = await getExistingColumnName('filler_flower_detail', ['quantity', 'qty']);
+    const cardCostColumn = await getExistingColumnName('card', ['cost_price', 'card_cost_price']);
+    const vaseCostColumn = await getExistingColumnName('vase', ['cost_price', 'vase_cost_price']);
+
+    const scQtyExpr = cartQtyColumn ? `IFNULL(sc.\`${cartQtyColumn}\`, 1)` : '1';
+    const productCostExpr = productCostColumn ? `IFNULL(pr.\`${productCostColumn}\`, 0)` : '0';
+    const productCostLineExpr = `(${productCostExpr} * ${scQtyExpr})`;
+
+    const flowerQtyExpr = flowerQtyColumn ? `IFNULL(fd.\`${flowerQtyColumn}\`, 1)` : '1';
+    const flowerCostExpr = flowerCostColumn ? `IFNULL(f.\`${flowerCostColumn}\`, 0)` : '0';
+
+    const fillerQtyExpr = fillerQtyColumn ? `IFNULL(ffd.\`${fillerQtyColumn}\`, 1)` : '1';
+    const fillerCostExpr = fillerCostColumn ? `IFNULL(ff.\`${fillerCostColumn}\`, 0)` : '0';
+
+    const cardCostExpr = cardCostColumn ? `IFNULL(c.\`${cardCostColumn}\`, 0)` : '0';
+    const vaseCostExpr = vaseCostColumn ? `IFNULL(v.\`${vaseCostColumn}\`, 0)` : '0';
+
+    const branchCostSql = `
+      SELECT
+        o.branch_id,
+        IFNULL(SUM(
+          ${productCostLineExpr}
+          + IFNULL(fd_agg.cost_amount, 0)
+          + IFNULL(ffd_agg.cost_amount, 0)
+          + IFNULL(cd_agg.cost_amount, 0)
+          + IFNULL(vc_agg.cost_amount, 0)
+        ), 0) AS cost_amount
+      FROM \`${ordersTable}\` o
+      JOIN shopping_cart sc ON sc.order_id = o.order_id
+      LEFT JOIN product pr ON pr.product_id = sc.product_id
+      LEFT JOIN (
+        SELECT
+          fd.shopping_cart_id,
+          IFNULL(SUM(${flowerCostExpr} * ${flowerQtyExpr}), 0) AS cost_amount
+        FROM flower_detail fd
+        LEFT JOIN flower f ON f.flower_id = fd.flower_id
+        GROUP BY fd.shopping_cart_id
+      ) fd_agg ON fd_agg.shopping_cart_id = sc.shopping_cart_id
+      LEFT JOIN (
+        SELECT
+          ffd.shopping_cart_id,
+          IFNULL(SUM(${fillerCostExpr} * ${fillerQtyExpr}), 0) AS cost_amount
+        FROM filler_flower_detail ffd
+        LEFT JOIN filler_flower ff ON ff.filler_flower_id = ffd.filler_flower_id
+        GROUP BY ffd.shopping_cart_id
+      ) ffd_agg ON ffd_agg.shopping_cart_id = sc.shopping_cart_id
+      LEFT JOIN (
+        SELECT
+          cd.shopping_cart_id,
+          IFNULL(SUM(${cardCostExpr}), 0) AS cost_amount
+        FROM card_detail cd
+        LEFT JOIN card c ON c.card_id = cd.card_id
+        GROUP BY cd.shopping_cart_id
+      ) cd_agg ON cd_agg.shopping_cart_id = sc.shopping_cart_id
+      LEFT JOIN (
+        SELECT
+          vc.shopping_cart_id,
+          IFNULL(SUM(${vaseCostExpr}), 0) AS cost_amount
+        FROM vase_customization vc
+        LEFT JOIN vase v ON v.vase_id = vc.vase_id
+        GROUP BY vc.shopping_cart_id
+      ) vc_agg ON vc_agg.shopping_cart_id = sc.shopping_cart_id
+      WHERE ${dateCondition('o.created_at')}${branchFilterSqlO}${productFilterSql}
+      GROUP BY o.branch_id
+    `;
+    const branchCostParams = start_date && end_date ? [start_date, end_date, ...params, ...productFilterParams] : [...params, ...productFilterParams];
+    const [branchCostRows] = await pool.query(branchCostSql, branchCostParams);
+    const costByBranchId = new Map(
+      (branchCostRows || []).map((row) => [Number(row.branch_id), Number(row.cost_amount || 0)])
+    );
+
+    const branchPerfWithProfit = (branchPerf || []).map((row) => {
+      const revenue = Number(row.revenue || 0);
+      const cost = costByBranchId.get(Number(row.branch_id)) || 0;
+      return {
+        ...row,
+        cost_amount: cost,
+        profit_loss: revenue - cost
+      };
+    });
+
     // Top branch (highest revenue)
      const topBranchSql = `SELECT b.branch_id, b.branch_name, IFNULL(SUM(o.total_amount),0) AS revenue
        FROM \`${ordersTable}\` o
@@ -5384,7 +5694,7 @@ app.get('/api/executive/overview', async (req, res) => {
       total_orders: Number(ordersRow.total_orders) || 0,
       customer_count: Number(custRow.customer_count) || 0,
       branches,
-      branch_performance: branchPerf,
+      branch_performance: branchPerfWithProfit,
       top_branch: topBranchRows[0] || null,
       top_flower: topFlowerRows[0] || null
     });
@@ -5452,6 +5762,180 @@ app.get('/api/executive/monthly-revenue', async (req, res) => {
     return res.json(months);
   } catch (err) {
     console.error('❌ Monthly revenue error:', err);
+    return res.status(500).json({ error: 'Server error', detail: err.message });
+  }
+});
+
+// Monthly profit/loss for executive dashboard
+// Profit/Loss = total sell price - total cost price
+// Sources: product, vase, flower, filler_flower (sell = 0), card
+app.get('/api/executive/monthly-profit-loss', async (req, res) => {
+  try {
+    const ordersTable = (await getExistingTableName(['orders', 'order'])) || 'orders';
+    const { start_date, end_date, branch_ids, branch_names, product_type } = req.query || {};
+
+    const cartQtyColumn = await getExistingColumnName('shopping_cart', ['qty', 'quantity']);
+    const productCostColumn = await getExistingColumnName('product', ['cost_price', 'product_cost_price']);
+
+    const vaseCostColumn = await getExistingColumnName('vase', ['cost_price', 'vase_cost_price']);
+
+    const flowerCostColumn = await getExistingColumnName('flower', ['cost_price', 'flower_cost_price']);
+    const flowerQtyColumn = await getExistingColumnName('flower_detail', ['quantity', 'qty', 'stem_count']);
+
+    const fillerCostColumn = await getExistingColumnName('filler_flower', ['cost_price', 'filler_flower_cost_price']);
+    const fillerQtyColumn = await getExistingColumnName('filler_flower_detail', ['quantity', 'qty']);
+
+    const cardCostColumn = await getExistingColumnName('card', ['cost_price', 'card_cost_price']);
+
+    const params = [];
+    let branchFilterSql = '';
+    if (branch_ids) {
+      const ids = String(branch_ids).split(',').map(s => Number(s.trim())).filter(n => !Number.isNaN(n));
+      if (ids.length) {
+        branchFilterSql = ` AND o.branch_id IN (${ids.map(() => '?').join(',')})`;
+        params.push(...ids);
+      }
+    } else if (branch_names) {
+      const names = String(branch_names).split(',').map(s => s.trim()).filter(Boolean);
+      if (names.length) {
+        branchFilterSql = ` AND o.branch_id IN (SELECT branch_id FROM branch WHERE branch_name IN (${names.map(() => '?').join(',')}))`;
+        params.push(...names);
+      }
+    }
+
+    const dateCondition = (field = 'o.created_at') => {
+      if (start_date && end_date) return `(DATE(${field}) BETWEEN ? AND ?)`;
+      return `YEAR(${field}) = YEAR(CURDATE())`;
+    };
+
+    let productFilterSql = '';
+    const productFilterParams = [];
+    if (product_type) {
+      const asNum = Number(product_type);
+      if (!Number.isNaN(asNum)) {
+        productFilterSql = ` AND EXISTS (SELECT 1 FROM shopping_cart scf JOIN product prf ON prf.product_id = scf.product_id WHERE prf.product_type_id = ? AND scf.order_id = o.order_id)`;
+        productFilterParams.push(asNum);
+      } else {
+        productFilterSql = ` AND EXISTS (SELECT 1 FROM shopping_cart scf JOIN product prf ON prf.product_id = scf.product_id JOIN product_type ptf ON ptf.product_type_id = prf.product_type_id WHERE ptf.product_type_name = ? AND scf.order_id = o.order_id)`;
+        productFilterParams.push(String(product_type));
+      }
+    }
+
+    const scQtyExpr = cartQtyColumn ? `IFNULL(sc.\`${cartQtyColumn}\`, 1)` : '1';
+    const productCostExpr = productCostColumn ? `IFNULL(pr.\`${productCostColumn}\`, 0)` : '0';
+    const productCostLineExpr = `(${productCostExpr} * ${scQtyExpr})`;
+
+    const flowerQtyExpr = flowerQtyColumn ? `IFNULL(fd.\`${flowerQtyColumn}\`, 1)` : '1';
+    const flowerCostExpr = flowerCostColumn ? `IFNULL(f.\`${flowerCostColumn}\`, 0)` : '0';
+
+    const fillerQtyExpr = fillerQtyColumn ? `IFNULL(ffd.\`${fillerQtyColumn}\`, 1)` : '1';
+    const fillerCostExpr = fillerCostColumn ? `IFNULL(ff.\`${fillerCostColumn}\`, 0)` : '0';
+
+    const cardCostExpr = cardCostColumn ? `IFNULL(c.\`${cardCostColumn}\`, 0)` : '0';
+    const vaseCostExpr = vaseCostColumn ? `IFNULL(v.\`${vaseCostColumn}\`, 0)` : '0';
+
+    const revenueSql = `
+      SELECT MONTH(o.created_at) AS month, IFNULL(SUM(total_amount), 0) AS sell_amount
+      FROM \`${ordersTable}\` o
+      WHERE ${dateCondition('o.created_at')}${branchFilterSql}${productFilterSql}
+      GROUP BY MONTH(o.created_at)
+      ORDER BY MONTH(o.created_at)
+    `;
+
+    const costSql = `
+      SELECT
+        MONTH(o.created_at) AS month,
+        IFNULL(SUM(
+          ${productCostLineExpr}
+          + IFNULL(fd_agg.cost_amount, 0)
+          + IFNULL(ffd_agg.cost_amount, 0)
+          + IFNULL(cd_agg.cost_amount, 0)
+          + IFNULL(vc_agg.cost_amount, 0)
+        ), 0) AS cost_amount
+      FROM \`${ordersTable}\` o
+      JOIN shopping_cart sc ON sc.order_id = o.order_id
+      LEFT JOIN product pr ON pr.product_id = sc.product_id
+      LEFT JOIN (
+        SELECT
+          fd.shopping_cart_id,
+          IFNULL(SUM(${flowerCostExpr} * ${flowerQtyExpr}), 0) AS cost_amount
+        FROM flower_detail fd
+        LEFT JOIN flower f ON f.flower_id = fd.flower_id
+        GROUP BY fd.shopping_cart_id
+      ) fd_agg ON fd_agg.shopping_cart_id = sc.shopping_cart_id
+      LEFT JOIN (
+        SELECT
+          ffd.shopping_cart_id,
+          IFNULL(SUM(${fillerCostExpr} * ${fillerQtyExpr}), 0) AS cost_amount
+        FROM filler_flower_detail ffd
+        LEFT JOIN filler_flower ff ON ff.filler_flower_id = ffd.filler_flower_id
+        GROUP BY ffd.shopping_cart_id
+      ) ffd_agg ON ffd_agg.shopping_cart_id = sc.shopping_cart_id
+      LEFT JOIN (
+        SELECT
+          cd.shopping_cart_id,
+          IFNULL(SUM(${cardCostExpr}), 0) AS cost_amount
+        FROM card_detail cd
+        LEFT JOIN card c ON c.card_id = cd.card_id
+        GROUP BY cd.shopping_cart_id
+      ) cd_agg ON cd_agg.shopping_cart_id = sc.shopping_cart_id
+      LEFT JOIN (
+        SELECT
+          vc.shopping_cart_id,
+          IFNULL(SUM(${vaseCostExpr}), 0) AS cost_amount
+        FROM vase_customization vc
+        LEFT JOIN vase v ON v.vase_id = vc.vase_id
+        GROUP BY vc.shopping_cart_id
+      ) vc_agg ON vc_agg.shopping_cart_id = sc.shopping_cart_id
+      WHERE ${dateCondition('o.created_at')}${branchFilterSql}${productFilterSql}
+      GROUP BY MONTH(o.created_at)
+      ORDER BY MONTH(o.created_at)
+    `;
+
+    const sqlParams = start_date && end_date
+      ? [start_date, end_date, ...params, ...productFilterParams]
+      : [...params, ...productFilterParams];
+
+    const [revenueRows] = await pool.query(revenueSql, sqlParams);
+    const [costRows] = await pool.query(costSql, sqlParams);
+
+    const months = Array.from({ length: 12 }, (_v, i) => ({
+      month: i + 1,
+      sell_amount: 0,
+      cost_amount: 0,
+      profit_loss: 0
+    }));
+
+    for (const row of revenueRows) {
+      const m = Number(row.month);
+      if (m >= 1 && m <= 12) {
+        const sell = Number(row.sell_amount || 0);
+        months[m - 1] = {
+          month: m,
+          sell_amount: sell,
+          cost_amount: 0,
+          profit_loss: sell
+        };
+      }
+    }
+
+    for (const row of costRows) {
+      const m = Number(row.month);
+      if (m >= 1 && m <= 12) {
+        const cost = Number(row.cost_amount || 0);
+        const currentSell = Number(months[m - 1].sell_amount || 0);
+        months[m - 1] = {
+          month: m,
+          sell_amount: currentSell,
+          cost_amount: cost,
+          profit_loss: currentSell - cost
+        };
+      }
+    }
+
+    return res.json(months);
+  } catch (err) {
+    console.error('❌ Monthly profit/loss error:', err);
     return res.status(500).json({ error: 'Server error', detail: err.message });
   }
 });

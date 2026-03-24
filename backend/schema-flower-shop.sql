@@ -356,6 +356,7 @@ CREATE TABLE IF NOT EXISTS employee (
   name VARCHAR(120) NOT NULL,
   surname VARCHAR(120) NULL,
   phone VARCHAR(20) NULL,
+  average_rating DECIMAL(3,2) NOT NULL DEFAULT 0.00,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY uq_employee_username (username),
@@ -379,6 +380,68 @@ CREATE TABLE IF NOT EXISTS executive (
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY uq_executive_username (username)
+) ENGINE=InnoDB;
+
+-- -----------------------------------------------------
+-- Florist and Delivery workflow
+-- -----------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS prepare (
+  prepare_id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  order_id BIGINT UNSIGNED NOT NULL,
+  employee_id BIGINT UNSIGNED NOT NULL,
+  florist_photo_url VARCHAR(500) NULL,
+  prepare_status ENUM('assigning','preparing','completed') NOT NULL DEFAULT 'assigning',
+  assigned_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  completed_at DATETIME NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_prepare_order (order_id),
+  KEY idx_prepare_employee (employee_id),
+  KEY idx_prepare_status (prepare_status),
+  CONSTRAINT fk_prepare_order
+    FOREIGN KEY (order_id) REFERENCES `order`(order_id)
+    ON UPDATE CASCADE ON DELETE CASCADE,
+  CONSTRAINT fk_prepare_employee
+    FOREIGN KEY (employee_id) REFERENCES employee(employee_id)
+    ON UPDATE CASCADE ON DELETE RESTRICT
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS delivery (
+  delivery_id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  order_id BIGINT UNSIGNED NOT NULL,
+  employee_id BIGINT UNSIGNED NOT NULL,
+  rider_photo_url VARCHAR(500) NULL,
+  delivery_status ENUM('assigning','delivering','completed','cancelled') NOT NULL DEFAULT 'assigning',
+  assigned_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  completed_at DATETIME NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_delivery_order (order_id),
+  KEY idx_delivery_employee (employee_id),
+  KEY idx_delivery_status (delivery_status),
+  CONSTRAINT fk_delivery_order
+    FOREIGN KEY (order_id) REFERENCES `order`(order_id)
+    ON UPDATE CASCADE ON DELETE CASCADE,
+  CONSTRAINT fk_delivery_employee
+    FOREIGN KEY (employee_id) REFERENCES employee(employee_id)
+    ON UPDATE CASCADE ON DELETE RESTRICT
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS order_review (
+  review_id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  order_id BIGINT UNSIGNED NOT NULL,
+  rating_product INT UNSIGNED NULL CHECK (rating_product >= 0 AND rating_product <= 5),
+  rating_rider INT UNSIGNED NULL CHECK (rating_rider >= 0 AND rating_rider <= 5),
+  comment TEXT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_order_review_order (order_id),
+  KEY idx_order_review_product (rating_product),
+  KEY idx_order_review_rider (rating_rider),
+  CONSTRAINT fk_order_review_order
+    FOREIGN KEY (order_id) REFERENCES `order`(order_id)
+    ON UPDATE CASCADE ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
 -- -----------------------------------------------------

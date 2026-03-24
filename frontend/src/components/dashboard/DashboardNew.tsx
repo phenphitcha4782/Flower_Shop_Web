@@ -78,6 +78,7 @@ interface DashboardOrder {
   totalAmount: number;
   createdAt: string | null;
   branchName: string;
+  hasReview: boolean;
   items: {
     shoppingCartId: number;
     productName: string;
@@ -431,7 +432,9 @@ function getOrderItemDetailLines(item: DashboardOrder['items'][number]): string[
 
 function SimpleOrdersTabNew({ orders }: SimpleOrdersTabProps) {
   const [statusFilter, setStatusFilter] = useState<'all' | 'waiting' | 'received' | 'preparing' | 'shipping' | 'delivered' | 'success' | 'cancelled'>('all');
+  const [reviewFilter, setReviewFilter] = useState<'all' | 'reviewed' | 'not-reviewed'>('all');
   const [activeRatingOrderCode, setActiveRatingOrderCode] = useState<string | null>(null);
+  const [isSubmittingRating, setIsSubmittingRating] = useState(false);
   const [productRating, setProductRating] = useState(5);
   const [deliveryRating, setDeliveryRating] = useState(5);
   const [ratingComment, setRatingComment] = useState('');
@@ -439,6 +442,26 @@ function SimpleOrdersTabNew({ orders }: SimpleOrdersTabProps) {
   const openRatingForm = (orderCode: string) => {
     if (activeRatingOrderCode === orderCode) {
       closeRatingForm();
+      return;
+    }
+    // Validate order status before opening form
+    const order = filteredOrders.find(o => o.orderCode === orderCode);
+    if (!order) {
+      Swal.fire({
+        icon: 'error',
+        title: 'เกิดข้อผิดพลาด',
+        text: 'ไม่พบคำสั่งซื้อ',
+      });
+      return;
+    }
+    const normalizedStatus = String(order.orderStatus || '').toLowerCase();
+    const isReviewable = normalizedStatus === 'success' || normalizedStatus === 'delivered';
+    if (!isReviewable) {
+      Swal.fire({
+        icon: 'warning',
+        title: 'ไม่สามารถรีวิวได้',
+        text: 'สามารถรีวิวได้เฉพาะคำสั่งซื้อที่มีสถานะ "พร้อมรับสินค้า" หรือ "จัดส่งสำเร็จ" เท่านั้น',
+      });
       return;
     }
     setActiveRatingOrderCode(orderCode);
@@ -454,7 +477,7 @@ function SimpleOrdersTabNew({ orders }: SimpleOrdersTabProps) {
     setRatingComment('');
   };
 
-  const submitRatingForm = (orderCode: string) => {
+  const submitRatingForm = async (orderCode: string) => {
     if (productRating < 1 || productRating > 5 || deliveryRating < 1 || deliveryRating > 5) {
       Swal.fire({
         icon: 'warning',
@@ -464,21 +487,83 @@ function SimpleOrdersTabNew({ orders }: SimpleOrdersTabProps) {
       return;
     }
 
-    Swal.fire({
-      icon: 'success',
-      title: 'ส่งคะแนนเรียบร้อย',
-      text: `คำสั่งซื้อ ${orderCode} | สินค้า ${productRating}/5 | จัดส่ง ${deliveryRating}/5${ratingComment.trim() ? ` | ความคิดเห็น: ${ratingComment.trim()}` : ''}`,
-    });
-    closeRatingForm();
+    // Find order_id from orderCode
+    const order = filteredOrders.find(o => o.orderCode === orderCode);
+    if (!order) {
+      Swal.fire({
+        icon: 'error',
+        title: 'เกิดข้อผิดพลาด',
+        text: 'ไม่พบคำสั่งซื้อ',
+      });
+      return;
+    }
+
+    setIsSubmittingRating(true);
+    try {
+      const response = await fetch('/api/customers/order-review', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          order_id: order.orderId,
+          rating_product: productRating,
+          rating_rider: deliveryRating,
+          comment: ratingComment.trim() || null,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        Swal.fire({
+          icon: 'error',
+          title: 'เกิดข้อผิดพลาด',
+          text: data.error || 'ไม่สามารถส่งคะแนนได้',
+        });
+        return;
+      }
+
+      Swal.fire({
+        icon: 'success',
+        title: 'ส่งคะแนนเรียบร้อย',
+        text: `คำสั่งซื้อ ${orderCode} | สินค้า ${productRating}/5${data.is_delivery ? ` | จัดส่ง ${deliveryRating}/5` : ''}${ratingComment.trim() ? ` | ความคิดเห็น: ${ratingComment.trim()}` : ''}`,
+      });
+      closeRatingForm();
+    } catch (error) {
+      console.error('❌ Rating submission error:', error);
+      Swal.fire({
+        icon: 'error',
+        title: 'เกิดข้อผิดพลาด',
+        text: 'ไม่สามารถส่งคะแนนได้ โปรดลองใหม่อีกครั้ง',
+      });
+    } finally {
+      setIsSubmittingRating(false);
+    }
   };
 
   const filteredOrders = orders.filter((order) => {
-    if (statusFilter === 'all') return true;
     const normalizedStatus = String(order.orderStatus || '').toLowerCase();
-    if (statusFilter === 'cancelled') {
-      return normalizedStatus === 'cancelled' || normalizedStatus === 'canceled';
+    
+    // Status filter
+    if (statusFilter !== 'all') {
+      if (statusFilter === 'cancelled') {
+        const isMatch = normalizedStatus === 'cancelled' || normalizedStatus === 'canceled';
+        if (!isMatch) return false;
+      } else {
+        if (normalizedStatus !== statusFilter) return false;
+      }
     }
-    return normalizedStatus === statusFilter;
+
+    // Review filter
+    if (reviewFilter === 'reviewed') {
+      if (!order.hasReview) return false;
+    } else if (reviewFilter === 'not-reviewed') {
+      // Not reviewed AND status must be success or delivered
+      if (order.hasReview) return false;
+      const isReviewable = normalizedStatus === 'success' || normalizedStatus === 'delivered';
+      if (!isReviewable) return false;
+    }
+
+    return true;
   });
 
   if (!orders.length) {
@@ -512,6 +597,20 @@ function SimpleOrdersTabNew({ orders }: SimpleOrdersTabProps) {
         </select>
       </div>
 
+      <div className="orders-filter-row">
+        <label htmlFor="orderReviewFilter" className="orders-filter-label">สถานะรีวิว</label>
+        <select
+          id="orderReviewFilter"
+          className="orders-filter-select"
+          value={reviewFilter}
+          onChange={(event) => setReviewFilter(event.target.value as 'all' | 'reviewed' | 'not-reviewed')}
+        >
+          <option value="all">ทั้งหมด</option>
+          <option value="not-reviewed">ยังไม่ได้รีวิว</option>
+          <option value="reviewed">รีวิวแล้ว</option>
+        </select>
+      </div>
+
       {!filteredOrders.length && (
         <div className="welcome-card">
           <p className="welcome-description">ไม่พบคำสั่งซื้อในสถานะที่เลือก</p>
@@ -522,7 +621,7 @@ function SimpleOrdersTabNew({ orders }: SimpleOrdersTabProps) {
         <div key={order.orderCode} className="benefits-section">
           {(() => {
             const normalizedStatus = String(order.orderStatus || '').toLowerCase();
-            const canRate = normalizedStatus === 'delivered' || normalizedStatus === 'success';
+            const canRate = (normalizedStatus === 'delivered' || normalizedStatus === 'success') && !order.hasReview;
             const isRatingFormOpen = activeRatingOrderCode === order.orderCode;
 
             return (
@@ -605,6 +704,7 @@ function SimpleOrdersTabNew({ orders }: SimpleOrdersTabProps) {
                   type="button"
                   className="rating-form-cancel"
                   onClick={closeRatingForm}
+                  disabled={isSubmittingRating}
                 >
                   ยกเลิก
                 </button>
@@ -612,8 +712,9 @@ function SimpleOrdersTabNew({ orders }: SimpleOrdersTabProps) {
                   type="button"
                   className="rating-form-submit"
                   onClick={() => submitRatingForm(order.orderCode)}
+                  disabled={isSubmittingRating}
                 >
-                  ส่งคะแนน
+                  {isSubmittingRating ? 'กำลังส่ง...' : 'ส่งคะแนน'}
                 </button>
               </div>
             </div>
@@ -1027,6 +1128,7 @@ export function DashboardNew({
                 totalAmount: Number(order.total_amount || 0),
                 createdAt: order.created_at || null,
                 branchName: order.branch_name || '-',
+                hasReview: Boolean(order.has_review || false),
                 items: Array.isArray(order.items)
                   ? order.items.map((item: any) => ({
                       shoppingCartId: Number(item.shopping_cart_id || 0),
