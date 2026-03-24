@@ -165,6 +165,7 @@ export default function ManagerDashboard() {
       const params = [];
       if (dateRangeParam) params.push(`date_range=${dateRangeParam}`);
       if (productType && productType !== 'all') params.push(`product_type_id=${productType}`);
+      if (memberLevelFilter && memberLevelFilter !== 'all') params.push(`member_level=${encodeURIComponent(memberLevelFilter)}`);
       
       if (params.length) url += '?' + params.join('&');
 
@@ -175,7 +176,7 @@ export default function ManagerDashboard() {
         })
         .catch(err => console.error('Failed to load dashboard stats:', err));
     }
-  }, [dateRange, productType]);
+  }, [dateRange, productType, memberLevelFilter]);
 
   // Fetch weekly sales when filters change
   useEffect(() => {
@@ -187,6 +188,7 @@ export default function ManagerDashboard() {
       const params = [];
       if (dateRangeParam) params.push(`date_range=${dateRangeParam}`);
       if (productType && productType !== 'all') params.push(`product_type_id=${productType}`);
+      if (memberLevelFilter && memberLevelFilter !== 'all') params.push(`member_level=${encodeURIComponent(memberLevelFilter)}`);
       if (params.length) url += '?' + params.join('&');
 
       fetch(url)
@@ -197,7 +199,7 @@ export default function ManagerDashboard() {
         })
         .catch(err => console.error('Failed to load weekly sales:', err));
     }
-  }, [dateRange, productType]);
+  }, [dateRange, productType, memberLevelFilter]);
 
   // Fetch top products when dateRange or productType changes
   useEffect(() => {
@@ -209,6 +211,7 @@ export default function ManagerDashboard() {
       const params = [];
       if (dateRangeParam) params.push(`date_range=${dateRangeParam}`);
       if (productType && productType !== 'all') params.push(`product_type_id=${productType}`);
+      if (memberLevelFilter && memberLevelFilter !== 'all') params.push(`member_level=${encodeURIComponent(memberLevelFilter)}`);
       
       if (params.length) url += '?' + params.join('&');
 
@@ -225,7 +228,7 @@ export default function ManagerDashboard() {
         })
         .catch(err => console.error('Failed to load top products:', err));
     }
-  }, [dateRange, productType]);
+  }, [dateRange, productType, memberLevelFilter]);
 
   const statsArray = [
     { label: 'ยอดขายรวม', value: `฿${stats.total_revenue.toLocaleString()}`, color: 'bg-blue-500', icon: DollarSign },
@@ -297,12 +300,6 @@ export default function ManagerDashboard() {
               >
                 <Filter className="w-5 h-5" />
                 <span>ฟิลเตอร์</span>
-              </button>
-              <button
-                onClick={() => navigate('/manager/promotions')}
-                className="px-4 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600 transition-colors"
-              >
-                โปรโมชั่น
               </button>
               <button
                 onClick={() => navigate('/manager/products')}
@@ -485,7 +482,7 @@ export default function ManagerDashboard() {
                     <p className="text-lg text-blue-600">{product.revenue}</p>
                   </div>
                 ))
-              ) : (dateRange !== 'custom' || productType !== 'all') ? (
+              ) : (dateRange !== 'custom' || productType !== 'all' || memberLevelFilter !== 'all') ? (
                 <p className="text-center text-gray-500 py-4">ไม่มีสินค้าสำหรับช่วงเวลา/ประเภทที่เลือก</p>
               ) : (
                 demoTopProducts.map((product, index) => (

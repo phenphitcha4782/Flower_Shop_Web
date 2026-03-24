@@ -23,7 +23,6 @@ import ManagerEmployees from './components/manager/ManagerEmployees';
 import ManagerLogin from './components/manager/ManagerLogin';
 import OrderHistory from './components/manager/OrderHistory';
 import ProductManagement from './components/manager/ProductManagement';
-import PromotionManagement from './components/manager/PromotionManagement';
 
 // Executive Pages
 import ExecutiveCustomers from './components/executive/ExecutiveCustomers';
@@ -67,7 +66,6 @@ export default function App() {
         <Route path="/manager/employees" element={<ManagerEmployees />} />
         <Route path="/manager/products" element={<ProductManagement />} />
         <Route path="/manager/orders" element={<OrderHistory />} />
-        <Route path="/manager/promotions" element={<PromotionManagement />} />
         
         {/* Executive */}
         <Route path="/executive/login" element={<ExecutiveLogin onLogin={() => setUserRole('executive')} />} />

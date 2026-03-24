@@ -74,6 +74,9 @@ export interface CheckoutPricing {
   subtotal: number;
   promotionCode: string | null;
   promotionDiscount: number;
+  promotionBenefitType?: 'amount' | 'percent' | 'shipping' | null;
+  promotionBranchIds?: number[];
+  isPromotionBranchLocked?: boolean;
   usePoints: boolean;
   pointsUsed: number;
   pointsDiscount: number;
@@ -114,6 +117,9 @@ export default function App() {
     subtotal: 0,
     promotionCode: null,
     promotionDiscount: 0,
+    promotionBenefitType: null,
+    promotionBranchIds: [],
+    isPromotionBranchLocked: false,
     usePoints: false,
     pointsUsed: 0,
     pointsDiscount: 0,
@@ -256,8 +262,12 @@ export default function App() {
 
   const normalizedPromotionCode = checkoutPricing.promotionCode?.trim().toUpperCase() || null;
   const hasFreeShippingCode = normalizedPromotionCode === FREE_SHIPPING_CODE;
+  const hasShippingPromotion = checkoutPricing.promotionBenefitType === 'shipping' || hasFreeShippingCode;
+  const forcedBranchIds = checkoutPricing.isPromotionBranchLocked
+    ? checkoutPricing.promotionBranchIds || []
+    : [];
   const shippingFee = Deliverytype === 'delivery' ? ORDER_SHIPPING_FEE : 0;
-  const shippingDiscount = Deliverytype === 'delivery' && hasFreeShippingCode ? ORDER_SHIPPING_FEE : 0;
+  const shippingDiscount = Deliverytype === 'delivery' && hasShippingPromotion ? ORDER_SHIPPING_FEE : 0;
   const basePayableTotal =
     checkoutPricing.subtotal === cartSubtotal ? checkoutPricing.finalAmount : cartSubtotal;
   const payableTotal = Math.max(basePayableTotal + shippingFee - shippingDiscount, 0);
@@ -268,10 +278,14 @@ export default function App() {
     setSenderphone(phone);
     setDeliverytype(deliveryType);
     setBranchId(selectedBranchId);
-    if (deliveryType === 'pickup' && hasFreeShippingCode) {
+    if (deliveryType === 'pickup' && hasShippingPromotion) {
       setCheckoutPricing((prev) => ({
         ...prev,
         promotionCode: null,
+        promotionBenefitType: null,
+        promotionDiscount: 0,
+        promotionBranchIds: [],
+        isPromotionBranchLocked: false,
       }));
     }
     setStep('payment');
@@ -347,6 +361,9 @@ export default function App() {
           subtotal: 0,
           promotionCode: null,
           promotionDiscount: 0,
+          promotionBenefitType: null,
+          promotionBranchIds: [],
+          isPromotionBranchLocked: false,
           usePoints: false,
           pointsUsed: 0,
           pointsDiscount: 0,
@@ -369,6 +386,9 @@ export default function App() {
       subtotal: 0,
       promotionCode: null,
       promotionDiscount: 0,
+      promotionBenefitType: null,
+      promotionBranchIds: [],
+      isPromotionBranchLocked: false,
       usePoints: false,
       pointsUsed: 0,
       pointsDiscount: 0,
@@ -437,6 +457,7 @@ export default function App() {
           currentDeliveryType={Deliverytype}
           customerName={currentCustomerName}
           memberLevelName={currentMemberLevelName}
+          customerPhone={userPhone ?? undefined}
           currentUserPoints={currentUserPoints}
           isUserPointsLoading={isUserPointsLoading}
           onAddMore={handleAddMoreItems}
@@ -464,6 +485,8 @@ export default function App() {
           cartItems={cart}
           orderId={`ORD${Date.now().toString().slice(-8)}`}
           loggedInPhone={userPhone ?? undefined}
+          forcedBranchIds={forcedBranchIds}
+          onBackToCart={() => setStep('cart')}
           onConfirm={handleDeliveryConfirm}
         />
       )}

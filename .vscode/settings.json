@@ -1,0 +1,8 @@
+{
+    "chat.tools.terminal.autoApprove": {
+        "/^node -e \"fetch\\('http://localhost:3000/api/executive/users'\\)\\.then\\(r=>r\\.json\\(\\)\\)\\.then\\(d=>\\{console\\.log\\(d\\.map\\(x=>\\(\\{u:x\\.username, role_name:x\\.role_name, role_key:x\\.role_key\\}\\)\\)\\);\\}\\)\\.catch\\(e=>\\{console\\.error\\(e\\.message\\);process\\.exit\\(1\\);\\}\\)\"$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
+    }
+}

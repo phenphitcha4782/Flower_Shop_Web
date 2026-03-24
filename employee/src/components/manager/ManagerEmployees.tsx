@@ -17,6 +17,8 @@ interface EmployeeItem {
   salary: number;
   rating: number;
   assignedJobs: number;
+  averageTaskMinutes: number;
+  outstandingScore: number;
   performanceMonth: string;
   createdAt: string;
 }
@@ -91,6 +93,42 @@ export default function ManagerEmployees() {
     return 'executive';
   };
 
+  const normalizePositive = (value: number, maxValue: number) => {
+    if (!Number.isFinite(value) || value <= 0) return 0;
+    if (!Number.isFinite(maxValue) || maxValue <= 0) return 0;
+    return Math.min(Math.max(value / maxValue, 0), 1);
+  };
+
+  const normalizeLowerIsBetter = (value: number, minValue: number, maxValue: number) => {
+    if (!Number.isFinite(value) || value <= 0) return 0;
+    if (!Number.isFinite(minValue) || !Number.isFinite(maxValue) || maxValue <= 0) return 0;
+    if (maxValue === minValue) return 1;
+    return Math.min(Math.max((maxValue - value) / (maxValue - minValue), 0), 1);
+  };
+
+  const computeOutstandingScore = (employee: EmployeeItem, roleUsers: EmployeeItem[]) => {
+    const maxRating = Math.max(...roleUsers.map((u) => Number(u.rating || 0)), 0);
+    const maxOrders = Math.max(...roleUsers.map((u) => Number(u.assignedJobs || 0)), 0);
+    const ratingScore = normalizePositive(Number(employee.rating || 0), maxRating);
+    const orderScore = normalizePositive(Number(employee.assignedJobs || 0), maxOrders);
+
+    if (employee.role === 'cashier') {
+      return (ratingScore * 0.5) + (orderScore * 0.5);
+    }
+
+    if (employee.role === 'florist' || employee.role === 'rider') {
+      const roleDurations = roleUsers
+        .map((u) => Number(u.averageTaskMinutes || 0))
+        .filter((v) => Number.isFinite(v) && v > 0);
+      const minDuration = roleDurations.length > 0 ? Math.min(...roleDurations) : 0;
+      const maxDuration = roleDurations.length > 0 ? Math.max(...roleDurations) : 0;
+      const durationScore = normalizeLowerIsBetter(Number(employee.averageTaskMinutes || 0), minDuration, maxDuration);
+      return (durationScore * 0.3) + (ratingScore * 0.3) + (orderScore * 0.4);
+    }
+
+    return 0;
+  };
+
   useEffect(() => {
     const branchId = localStorage.getItem('branch_id');
     if (!branchId) return;
@@ -105,14 +143,38 @@ export default function ManagerEmployees() {
       })
       .catch((err) => console.error('Failed to load branches:', err));
 
-    fetch(`http://localhost:3000/api/manager/branch-employees/${branchId}`)
-      .then((res) => res.json())
-      .then((rows: Array<any>) => {
+    Promise.all([
+      fetch(`http://localhost:3000/api/manager/branch-employees/${branchId}`).then((res) => res.json()),
+      fetch(`http://localhost:3000/api/manager/employee-performance/${branchId}`).then((res) => res.json()).catch(() => []),
+    ])
+      .then(([rows, perfRows]: [Array<any>, Array<any>]) => {
+        const perfMap = new Map<number, any>();
+        if (Array.isArray(perfRows)) {
+          perfRows.forEach((p) => {
+            const employeeId = Number(p.employee_id || 0);
+            if (employeeId > 0) perfMap.set(employeeId, p);
+          });
+        }
+
         const mapped = rows.map((row) => {
           const firstName = String(row.name || '').trim();
           const lastName = String(row.surname || '').trim();
           const username = String(row.username || `employee_${row.employee_id || ''}`);
           const createdAt = row.created_at ? String(row.created_at) : new Date().toISOString();
+          const role = mapRole(Number(row.role_id || 0), String(row.role_name || ''));
+          const perf = perfMap.get(Number(row.employee_id || 0)) || {};
+          const averageRating = Number(perf.average_rating || 0);
+          let assignedJobs = 0;
+          let averageTaskMinutes = 0;
+          if (role === 'cashier') {
+            assignedJobs = Number(perf.cashier_orders || 0);
+          } else if (role === 'florist') {
+            assignedJobs = Number(perf.florist_orders || 0);
+            averageTaskMinutes = Number(perf.florist_avg_minutes || 0);
+          } else if (role === 'rider') {
+            assignedJobs = Number(perf.rider_orders || 0);
+            averageTaskMinutes = Number(perf.rider_avg_minutes || 0);
+          }
           const profileUrlRaw = String(row.employee_profile_url || '').trim();
           const profileUrl = profileUrlRaw
             ? (profileUrlRaw.startsWith('http://') || profileUrlRaw.startsWith('https://')
@@ -129,15 +191,38 @@ export default function ManagerEmployees() {
             lastName: lastName || '-',
             phone: String(row.phone || '-'),
             branch: String(row.branch_name || branchName || `สาขา ${branchId}`),
-            role: mapRole(Number(row.role_id || 0), String(row.role_name || '')),
+            role,
             salary: Number(row.salary || 0),
-            rating: 0,
-            assignedJobs: 0,
+            rating: averageRating,
+            assignedJobs,
+            averageTaskMinutes,
+            outstandingScore: 0,
             performanceMonth: createdAt.slice(0, 7),
             createdAt,
           } as EmployeeItem;
         });
-        setEmployees(mapped);
+
+        const byRole = {
+          cashier: mapped.filter((u) => u.role === 'cashier'),
+          florist: mapped.filter((u) => u.role === 'florist'),
+          rider: mapped.filter((u) => u.role === 'rider'),
+        };
+
+        const withScores = mapped.map((u) => {
+          const roleUsers = u.role === 'cashier'
+            ? byRole.cashier
+            : u.role === 'florist'
+              ? byRole.florist
+              : u.role === 'rider'
+                ? byRole.rider
+                : [];
+          if (roleUsers.length === 0) return u;
+          return {
+            ...u,
+            outstandingScore: computeOutstandingScore(u, roleUsers),
+          };
+        });
+        setEmployees(withScores);
       })
       .catch((err) => {
         console.error('Failed to load branch employees:', err);
@@ -192,11 +277,21 @@ export default function ManagerEmployees() {
   const topPerformerByRole = (role: EmployeeRole) => {
     const roleUsers = filteredEmployees.filter((user) => user.role === role);
     if (roleUsers.length === 0) return null;
-    return roleUsers.sort((a, b) => {
-      const ratingDiff = b.rating - a.rating;
+    const scored = roleUsers.map((u) => ({
+      user: u,
+      score: computeOutstandingScore(u, roleUsers),
+    }));
+    scored.sort((a, b) => {
+      const scoreDiff = b.score - a.score;
+      if (scoreDiff !== 0) return scoreDiff;
+      const ratingDiff = b.user.rating - a.user.rating;
       if (ratingDiff !== 0) return ratingDiff;
-      return b.assignedJobs - a.assignedJobs;
-    })[0];
+      return b.user.assignedJobs - a.user.assignedJobs;
+    });
+    return {
+      ...scored[0].user,
+      outstandingScore: scored[0].score,
+    };
   };
 
   const outstandingCards = [
@@ -356,7 +451,11 @@ export default function ManagerEmployees() {
                     <div className="flex items-center gap-3 text-sm">
                       <span className="text-amber-600">Rating: {card.user.rating.toFixed(1)}</span>
                       <span className="text-blue-600">งาน: {card.user.assignedJobs.toLocaleString('th-TH')}</span>
+                      {(card.user.role === 'florist' || card.user.role === 'rider') && card.user.averageTaskMinutes > 0 && (
+                        <span className="text-emerald-600">เวลาเฉลี่ย: {card.user.averageTaskMinutes.toFixed(1)} นาที</span>
+                      )}
                     </div>
+                    <p className="text-xs text-gray-500 mt-2">คะแนน: {(Number(card.user.outstandingScore || 0) * 100).toFixed(1)}</p>
                   </div>
                   <img
                     src={card.user.profileImage}

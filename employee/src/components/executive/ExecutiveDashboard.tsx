@@ -29,10 +29,10 @@ export default function ExecutiveDashboard() {
 
   const branchPerformance = [
     // will be replaced by API data
-    ...(overview && Array.isArray(overview.branch_performance) ? overview.branch_performance.map((b: any) => ({ branch: b.branch_name, revenue: Number(b.revenue), orders: Number(b.orders), employee_count: Number(b.employee_count || 0) })) : [
-      { branch: 'พิจิตร', revenue: 58000, orders: 1250, employee_count: 8 },
-      { branch: 'แพร่', revenue: 42000, orders: 1100, employee_count: 6 },
-      { branch: 'สงขลา', revenue: 25450, orders: 895, employee_count: 5 }
+    ...(overview && Array.isArray(overview.branch_performance) ? overview.branch_performance.map((b: any) => ({ branch: b.branch_name, revenue: Number(b.revenue), orders: Number(b.orders), employee_count: Number(b.employee_count || 0), average_rating: Number(b.average_rating || 0) })) : [
+      { branch: 'พิจิตร', revenue: 58000, orders: 1250, employee_count: 8, average_rating: 4.8 },
+      { branch: 'แพร่', revenue: 42000, orders: 1100, employee_count: 6, average_rating: 4.5 },
+      { branch: 'สงขลา', revenue: 25450, orders: 895, employee_count: 5, average_rating: 4.2 }
     ])
   ];
 
@@ -201,7 +201,7 @@ export default function ExecutiveDashboard() {
                 onClick={() => navigate('/executive/users')}
                 className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors"
               >
-                จัดการสมาชิก
+                จัดการพนักงาน
               </button>
               <button
                 onClick={() => navigate('/executive/products')}
@@ -465,6 +465,7 @@ export default function ExecutiveDashboard() {
                   <th className="px-6 py-3 text-left text-sm text-gray-600">รายได้</th>
                   <th className="px-6 py-3 text-left text-sm text-gray-600">คำสั่งซื้อ</th>
                   <th className="px-6 py-3 text-left text-sm text-gray-600">มูลค่าเฉลี่ยต่อคำสั่งซื้อ</th>
+                  <th className="px-6 py-3 text-left text-sm text-gray-600">คะแนนเฉลี่ย</th>
                   <th className="px-6 py-3 text-left text-sm text-gray-600">พนักงาน</th>
                   <th className="px-6 py-3 text-left text-sm text-gray-600">สถานะ</th>
                 </tr>
@@ -480,7 +481,8 @@ export default function ExecutiveDashboard() {
                     </td>
                     <td className="px-6 py-4 text-gray-900">฿{branch.revenue.toLocaleString()}</td>
                     <td className="px-6 py-4 text-gray-900">{branch.orders}</td>
-                    <td className="px-6 py-4 text-gray-900">฿{(branch.revenue / branch.orders).toFixed(2)}</td>
+                    <td className="px-6 py-4 text-gray-900">฿{branch.orders > 0 ? (branch.revenue / branch.orders).toFixed(2) : '0.00'}</td>
+                    <td className="px-6 py-4 text-gray-900">{Number(branch.average_rating || 0).toFixed(2)}</td>
                     <td className="px-6 py-4 text-gray-900">{branch.employee_count ?? 0}</td>
                     <td className="px-6 py-4">
                       <span className="px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm">

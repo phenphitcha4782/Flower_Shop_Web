@@ -1,7 +1,7 @@
 import { ChevronDown, Plus, ShoppingCart, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { CartItem, type CheckoutPricing } from '../App';
-import { getPromotions, type Promotion } from '../api/promotion.api';
+import { getPromotions, type Promotion, validatePromotion, type ValidatePromotionResponse } from '../api/promotion.api';
 import { ImageWithFallback } from './figma/ImageWithFallback';
 
 interface CartProps {
@@ -9,6 +9,7 @@ interface CartProps {
   currentDeliveryType: 'pickup' | 'delivery';
   customerName: string;
   memberLevelName: string;
+  customerPhone?: string;
   currentUserPoints: number;
   isUserPointsLoading: boolean;
   onAddMore: () => void;
@@ -123,7 +124,8 @@ const getPromotionMemberLabel = (
 const getPromotionAvailability = (
   preset: PromotionPreset | undefined,
   subtotal: number,
-  deliveryType: 'pickup' | 'delivery'
+  deliveryType: 'pickup' | 'delivery',
+  cartFlowerIds: number[]
 ): { isSelectable: boolean; reason: string | null } => {
   try {
     if (!preset) {
@@ -153,6 +155,20 @@ const getPromotionAvailability = (
         isSelectable: false,
         reason: 'โค้ดนี้ถูกใช้ครบจำนวนแล้ว',
       };
+    }
+
+    const restrictedFlowerIds = Array.isArray(preset.flowerIds)
+      ? preset.flowerIds.filter((id) => Number.isInteger(Number(id)) && Number(id) > 0)
+      : [];
+    const isFlowerRestricted = preset.isAllFlower === false && restrictedFlowerIds.length > 0;
+    if (isFlowerRestricted) {
+      const hasMatchingFlower = cartFlowerIds.some((flowerId) => restrictedFlowerIds.includes(flowerId));
+      if (!hasMatchingFlower) {
+        return {
+          isSelectable: false,
+          reason: 'โค้ดนี้ใช้ได้เฉพาะดอกไม้ที่ร่วมรายการเท่านั้น',
+        };
+      }
     }
 
     return {
@@ -209,6 +225,7 @@ export function Cart({
   currentDeliveryType,
   customerName,
   memberLevelName,
+  customerPhone,
   currentUserPoints,
   isUserPointsLoading,
   onAddMore,
@@ -222,6 +239,8 @@ export function Cart({
   const [isLoadingPromotions, setIsLoadingPromotions] = useState(true);
   const [promotionInput, setPromotionInput] = useState('');
   const [appliedPromotionCode, setAppliedPromotionCode] = useState<string | null>(null);
+  const [appliedPromotionValidation, setAppliedPromotionValidation] = useState<ValidatePromotionResponse | null>(null);
+  const [isValidatingPromotion, setIsValidatingPromotion] = useState(false);
   const [promotionError, setPromotionError] = useState<string | null>(null);
   const [promotionDropdownOpen, setPromotionDropdownOpen] = useState(false);
   const [usePoints, setUsePoints] = useState(false);
@@ -355,9 +374,9 @@ export function Cart({
   };
 
   const promotionDiscount = useMemo(() => {
-    if (!appliedPromotionCode || isLoadingPromotions) return 0;
-    return resolvePromotionDiscount(appliedPromotionCode, totalAmount, promotions);
-  }, [appliedPromotionCode, totalAmount, promotions, isLoadingPromotions]);
+    if (!appliedPromotionCode) return 0;
+    return Number(appliedPromotionValidation?.discountAmount || 0);
+  }, [appliedPromotionCode, appliedPromotionValidation]);
 
   const selectedPromotionPreset = useMemo(() => {
     if (isLoadingPromotions) return undefined;
@@ -368,6 +387,40 @@ export function Cart({
     if (!appliedPromotionCode || isLoadingPromotions) return undefined;
     return getPromotionPreset(promotions, appliedPromotionCode);
   }, [appliedPromotionCode, promotions, isLoadingPromotions]);
+
+  const appliedPromotionBranchText = useMemo(() => {
+    const names = appliedPromotionValidation?.branchNames || [];
+    if (names.length > 0) {
+      return names.join(', ');
+    }
+
+    const ids = appliedPromotionValidation?.branchIds || [];
+    if (ids.length > 0) {
+      return ids.map((id) => `สาขา #${id}`).join(', ');
+    }
+
+    return '-';
+  }, [appliedPromotionValidation]);
+
+  const cartFlowerIds = useMemo(() => {
+    const fromFlowerTypeIds = items.flatMap((item) =>
+      Array.isArray(item.flowerTypeIds)
+        ? item.flowerTypeIds
+            .map((id) => Number(id))
+            .filter((id) => Number.isInteger(id) && id > 0)
+        : []
+    );
+
+    const fromMainFlowers = items.flatMap((item) =>
+      Array.isArray(item.customization?.mainFlowers)
+        ? item.customization.mainFlowers
+            .map((flower) => Number(flower?.id))
+            .filter((id) => Number.isInteger(id) && id > 0)
+        : []
+    );
+
+    return Array.from(new Set([...fromFlowerTypeIds, ...fromMainFlowers]));
+  }, [items]);
 
   const remainingAfterPromotion = Math.max(totalAmount - promotionDiscount, 0);
   const requestedPoints = useMemo(() => {
@@ -391,8 +444,9 @@ export function Cart({
   const finalAmount = Math.max(totalAmount - totalDiscount, 0);
 
   const shippingFee = currentDeliveryType === 'delivery' ? ORDER_SHIPPING_FEE : 0;
+  const appliedBenefitType = appliedPromotionValidation?.benefitType || appliedPromotionPreset?.benefitType;
   const isFreeShippingPromotion =
-    currentDeliveryType === 'delivery' && appliedPromotionPreset?.benefitType === 'shipping';
+    currentDeliveryType === 'delivery' && appliedBenefitType === 'shipping';
   const shippingDiscount = isFreeShippingPromotion ? shippingFee : 0;
   const finalAmountWithShipping = Math.max(finalAmount + shippingFee - shippingDiscount, 0);
 
@@ -419,6 +473,9 @@ export function Cart({
       subtotal: totalAmount,
       promotionCode: appliedPromotionCode,
       promotionDiscount,
+      promotionBenefitType: appliedBenefitType || null,
+      promotionBranchIds: appliedPromotionValidation?.branchIds || [],
+      isPromotionBranchLocked: Boolean(appliedPromotionValidation?.isBranchRestricted),
       usePoints,
       pointsUsed,
       pointsDiscount,
@@ -427,6 +484,8 @@ export function Cart({
     });
   }, [
     appliedPromotionCode,
+    appliedBenefitType,
+    appliedPromotionValidation,
     finalAmount,
     onPricingChange,
     pointsDiscount,
@@ -453,7 +512,7 @@ export function Cart({
     };
   }, []);
 
-  const applyPromotionCode = (rawCode: string) => {
+  const applyPromotionCode = async (rawCode: string) => {
     // Guard: check if promotions are still loading
     if (isLoadingPromotions) {
       setPromotionError('กำลังโหลดโปรโมชั่น กรุณารอนิดหน่อย');
@@ -469,65 +528,55 @@ export function Cart({
     const normalizedCode = rawCode.trim().toUpperCase();
     if (!normalizedCode) {
       setAppliedPromotionCode(null);
+      setAppliedPromotionValidation(null);
       setPromotionError(null);
       return;
     }
 
     try {
-      const preset = getPromotionPreset(promotions, normalizedCode);
-      if (preset) {
-        if (preset.benefitType === 'shipping' && currentDeliveryType === 'pickup') {
-          setAppliedPromotionCode(null);
-          setPromotionError('โค้ดส่วนลดค่าจัดส่งใช้ไม่ได้กับการรับหน้าร้าน (ไม่มีค่าส่ง)');
-          return;
-        }
+      setIsValidatingPromotion(true);
+      const validation = await validatePromotion({
+        code: normalizedCode,
+        subtotal: totalAmount,
+        deliveryType: currentDeliveryType,
+        memberLevelName,
+        customerPhone,
+        flowerIds: cartFlowerIds,
+      });
 
-        if (totalAmount < (preset.minSubtotal || 0)) {
-          setAppliedPromotionCode(null);
-          setPromotionError(`โค้ดนี้ใช้ได้เมื่อยอดซื้อขั้นต่ำ ฿${(preset.minSubtotal || 0).toLocaleString()}`);
-          return;
-        }
-
-        const remainingCount = getPromotionRemainingCount(preset);
-        if (remainingCount === 0) {
-          setAppliedPromotionCode(null);
-          setPromotionError('โค้ดนี้ถูกใช้ครบจำนวนแล้ว');
-          return;
-        }
-        setAppliedPromotionCode(normalizedCode);
-        setPromotionInput(normalizedCode);
-        setPromotionError(null);
-        return;
-      }
-
-      const discount = resolvePromotionDiscount(normalizedCode, totalAmount, promotions);
-      if (discount <= 0) {
+      if (!validation.valid) {
         setAppliedPromotionCode(null);
-        setPromotionError('ไม่พบโค้ดโปรโมชั่นนี้');
+        setAppliedPromotionValidation(null);
+        setPromotionError(validation.message || 'ไม่พบโค้ดโปรโมชั่นนี้');
         return;
       }
 
       setAppliedPromotionCode(normalizedCode);
+      setAppliedPromotionValidation(validation);
       setPromotionInput(normalizedCode);
       setPromotionError(null);
     } catch (error) {
       console.error('Error applying promotion code:', error);
       setAppliedPromotionCode(null);
+      setAppliedPromotionValidation(null);
       setPromotionError('เกิดข้อผิดพลาดในการใช้โค้ด');
+    } finally {
+      setIsValidatingPromotion(false);
     }
   };
 
-  const handleApplyPromotion = () => {
-    applyPromotionCode(promotionInput);
+  const handleApplyPromotion = async () => {
+    await applyPromotionCode(promotionInput);
   };
 
-  const handleSelectPromotion = (code: string) => {
-    applyPromotionCode(code);
+  const handleSelectPromotion = async (code: string) => {
+    await applyPromotionCode(code);
     setPromotionDropdownOpen(false);
   };
 
   const handleRemovePromotion = () => {
     setAppliedPromotionCode(null);
+    setAppliedPromotionValidation(null);
     setPromotionInput('');
     setPromotionError(null);
     setPromotionDropdownOpen(false);
@@ -602,10 +651,8 @@ export function Cart({
                 <p className="text-gray-900">{customerName || '-'}</p>
                 <p className="text-sm text-gray-600 mt-1">ระดับสมาชิก: {memberLevelName || '-'}</p>
               </div>
-                                  ใช้โค้ด {(appliedPromotionPreset ? getPromotionDisplayText(appliedPromotionPreset) : appliedPromotionCode)} สำเร็จ: ส่วนลดค่าจัดส่ง {currentDeliveryType === 'delivery' ? '(หักค่าส่งแล้ว)' : '(โค้ดนี้จะใช้ได้เมื่อเลือกแบบจัดส่ง)'}
+                                 
               <div>
-                <p className="text-gray-900 mb-3">โค้ดโปรโมชั่น</p>
-                <p className="text-xs text-gray-500 mb-3">สมาชิกปัจจุบัน: {memberLevelName || '-'}</p>
 
                 <div className="relative mb-4" ref={promotionDropdownRef}>
                   <button
@@ -635,8 +682,19 @@ export function Cart({
                           const availability = getPromotionAvailability(
                             preset,
                             totalAmount,
-                            currentDeliveryType
+                            currentDeliveryType,
+                            cartFlowerIds
                           );
+
+                          const cardClassName = availability.isSelectable
+                            ? 'border-gray-200 bg-white hover:border-blue-300 hover:bg-blue-50/30'
+                            : 'border-gray-200 bg-gray-50 text-gray-500';
+                          const titleClassName = availability.isSelectable
+                            ? 'text-sm font-semibold text-gray-900'
+                            : 'text-sm font-semibold text-gray-500';
+                          const badgeClassName = availability.isSelectable
+                            ? 'rounded-full bg-orange-100 px-2 py-0.5 text-xs font-semibold text-orange-600'
+                            : 'rounded-full bg-gray-200 px-2 py-0.5 text-xs font-semibold text-gray-500';
 
                           return (
                             <button
@@ -644,13 +702,13 @@ export function Cart({
                               type="button"
                               disabled={!availability.isSelectable}
                               onClick={() => handleSelectPromotion(preset.code)}
-                              className={`mb-2 w-full rounded-lg border p-3 text-left last:mb-0 ${availability.isSelectable ? 'border-gray-200 bg-white hover:border-blue-300 hover:bg-blue-50/30' : 'border-gray-200 bg-gray-50 text-gray-500'}`}
+                              className={`mb-2 w-full rounded-lg border p-3 text-left last:mb-0 ${cardClassName}`}
                             >
                               <div className="mb-1 flex items-start justify-between gap-2">
-                                <p className="text-sm font-semibold text-gray-900">
+                                <p className={titleClassName}>
                                   {getPromotionDisplayText(preset)}
                                 </p>
-                                <span className="rounded-full bg-orange-100 px-2 py-0.5 text-xs font-semibold text-orange-600">
+                                <span className={badgeClassName}>
                                   x{perUserLimit > 0 ? perUserLimit : '∞'}
                                 </span>
                               </div>
@@ -684,11 +742,14 @@ export function Cart({
                       className="flex-1 px-4 py-3 border rounded-xl focus:outline-none focus:border-blue-400"
                     />
                     <button
-                      onClick={handleApplyPromotion}
+                      onClick={() => {
+                        void handleApplyPromotion();
+                      }}
+                      disabled={isValidatingPromotion}
                       className="px-6 py-3 rounded-xl text-white"
                       style={{ backgroundColor: '#62C4FF' }}
                     >
-                      ใช้โค้ด
+                      {isValidatingPromotion ? 'กำลังตรวจสอบ...' : 'ใช้โค้ด'}
                     </button>
                     {appliedPromotionCode && (
                       <button
@@ -725,10 +786,15 @@ export function Cart({
                     ใช้โค้ด {(appliedPromotionPreset ? getPromotionDisplayText(appliedPromotionPreset) : appliedPromotionCode)} สำเร็จ ลด {promotionDiscount.toLocaleString()} บาท
                   </p>
                 )}
-                {appliedPromotionCode && appliedPromotionPreset?.benefitType === 'shipping' && (
+                {appliedPromotionCode && appliedBenefitType === 'shipping' && (
                   <p className="text-green-600 text-sm mt-2">
                     ใช้โค้ด {(appliedPromotionPreset ? getPromotionDisplayText(appliedPromotionPreset) : appliedPromotionCode)} สำเร็จ: ส่วนลดค่าจัดส่ง {currentDeliveryType === 'delivery' ? '(หักค่าส่งแล้ว)' : '(โค้ดนี้จะใช้ได้เมื่อเลือกแบบจัดส่ง)'}
                   </p>
+                )}
+                {appliedPromotionValidation?.isBranchRestricted && (appliedPromotionValidation.branchIds?.length || 0) > 0 && (
+                    <p className="text-blue-700 text-sm">
+                      โปรโมชั่นนี้ใช้ได้เฉพาะ: {appliedPromotionBranchText}
+                    </p>
                 )}
               </div>
 

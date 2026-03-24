@@ -1,4 +1,4 @@
-import { ArrowLeft, Download, Search } from 'lucide-react';
+import { ArrowLeft, Search } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
@@ -19,6 +19,47 @@ export default function OrderHistory() {
   const [statusFilter, setStatusFilter] = useState('all');
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const normalizeOrderStatus = (statusRaw?: string) => {
+    const status = String(statusRaw || '').toLowerCase();
+    if (status === 'canceled') return 'cancelled';
+    return status;
+  };
+
+  const mapOrderStatusLabel = (statusRaw?: string) => {
+    const status = normalizeOrderStatus(statusRaw);
+    if (status === 'waiting') return 'กำลังรอ';
+    if (status === 'received') return 'รับคำสั่งซื้อ';
+    if (status === 'preparing') return 'กำลังจัดเตรียม';
+    if (status === 'shipping') return 'กำลังจัดส่ง';
+    if (status === 'success') return 'พร้อมรับสินค้า';
+    if (status === 'delivered') return 'จัดส่งสำเร็จ';
+    if (status === 'cancelled') return 'ยกเลิก';
+    return statusRaw || '-';
+  };
+
+  const getOrderStatusBadgeClass = (statusRaw?: string) => {
+    const status = normalizeOrderStatus(statusRaw);
+    if (status === 'waiting') return 'bg-yellow-100 text-yellow-800';
+    if (status === 'received') return 'bg-green-100 text-green-800';
+    if (status === 'preparing') return 'bg-indigo-100 text-indigo-800';
+    if (status === 'shipping') return 'bg-blue-100 text-blue-800';
+    if (status === 'success') return 'bg-green-100 text-green-800';
+    if (status === 'delivered') return 'bg-green-100 text-green-800';
+    if (status === 'cancelled') return 'bg-red-100 text-red-800';
+    return 'bg-gray-100 text-gray-800';
+  };
+
+  const statusOptions = [
+    { value: 'all', label: 'สถานะทั้งหมด' },
+    { value: 'waiting', label: 'กำลังรอ' },
+    { value: 'received', label: 'รับคำสั่งซื้อ' },
+    { value: 'preparing', label: 'กำลังจัดเตรียม' },
+    { value: 'shipping', label: 'กำลังจัดส่ง' },
+    { value: 'success', label: 'พร้อมรับสินค้า' },
+    { value: 'delivered', label: 'จัดส่งสำเร็จ' },
+    { value: 'cancelled', label: 'ยกเลิก' },
+  ];
 
   useEffect(() => {
     const branchId = localStorage.getItem('branch_id');
@@ -60,29 +101,9 @@ export default function OrderHistory() {
   const filteredOrders = orders.filter(order => {
     const matchesSearch = order.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          order.customer.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesStatus = statusFilter === 'all' || order.status.toLowerCase() === statusFilter.toLowerCase();
+    const matchesStatus = statusFilter === 'all' || normalizeOrderStatus(order.status) === statusFilter.toLowerCase();
     return matchesSearch && matchesStatus;
   });
-
-  const getStatusColor = (status: string) => {
-    const colors: Record<string, string> = {
-      'received': 'bg-blue-100 text-blue-800',
-      'preparing': 'bg-orange-100 text-orange-800',
-      'shipping': 'bg-blue-100 text-blue-800',
-      'delivered': 'bg-green-100 text-green-800'
-    };
-    return colors[status] || 'bg-gray-100 text-gray-800';
-  };
-
-  const getStatusLabel = (status: string) => {
-    const labels: Record<string, string> = {
-      'received': 'รับคำสั่งซื้อ',
-      'preparing': 'กำลังจัดเตรียม',
-      'shipping': 'กำลังจัดส่ง',
-      'delivered': 'จัดส่งสำเร็จ'
-    };
-    return labels[status] || status;
-  };
 
   const totalRevenue = filteredOrders.reduce((sum, order) => sum + order.total, 0);
 
@@ -140,11 +161,9 @@ export default function OrderHistory() {
                 onChange={(e) => setStatusFilter(e.target.value)}
                 className="px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none bg-white"
               >
-                <option value="all">สถานะทั้งหมด</option>
-                <option value="received">รับคำสั่งซื้อ</option>
-                <option value="preparing">กำลังจัดเตรียม</option>
-                <option value="shipping">กำลังจัดส่ง</option>
-                <option value="delivered">จัดส่งสำเร็จ</option>
+                {statusOptions.map((opt) => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
               </select>
             </div>
           </div>
@@ -179,8 +198,8 @@ export default function OrderHistory() {
                       ฿{order.total.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </td>
                     <td className="px-6 py-4">
-                      <span className={`px-3 py-1 rounded-full text-sm ${getStatusColor(order.status)}`}>
-                        {getStatusLabel(order.status)}
+                      <span className={`px-3 py-1 rounded-full text-sm ${getOrderStatusBadgeClass(order.status)}`}>
+                        {mapOrderStatusLabel(order.status)}
                       </span>
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-600">

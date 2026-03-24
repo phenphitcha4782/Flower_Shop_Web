@@ -164,12 +164,16 @@ app.get('/api/vases', async (req, res) => {
 // All products (for manager product management page)
 app.get('/api/products', async (_req, res) => {
   try {
+    const productCostColumn = await getExistingColumnName('product', ['cost_price', 'product_cost_price']);
+    const productSellColumn = await getExistingColumnName('product', ['product_price', 'sell_price', 'price']);
+
     const [rows] = await pool.query(
       `
       SELECT
         p.product_id,
         p.product_name,
-        p.product_price,
+        ${productSellColumn ? `p.\`${productSellColumn}\`` : '0'} AS product_price,
+        ${productCostColumn ? `p.\`${productCostColumn}\`` : (productSellColumn ? `p.\`${productSellColumn}\`` : '0')} AS cost_price,
         p.product_img,
         p.product_type_id,
         pt.product_type_name
@@ -207,6 +211,9 @@ app.get('/api/vase-shapes', async (req, res) => {
 // All vase shapes (for manager product management page)
 app.get('/api/vase-shapes/all', async (_req, res) => {
   try {
+    const costColumn = await getExistingColumnName('vase', ['cost_price', 'vase_cost_price']);
+    const sellColumn = await getExistingColumnName('vase', ['vase_price', 'sell_price', 'price']);
+
     const [rows] = await pool.query(
       `
       SELECT
@@ -214,7 +221,8 @@ app.get('/api/vase-shapes/all', async (_req, res) => {
         product_id,
         vase_name,
         vase_img,
-        vase_price
+        ${sellColumn ? `\`${sellColumn}\`` : '0'} AS vase_price,
+        ${costColumn ? `\`${costColumn}\`` : (sellColumn ? `\`${sellColumn}\`` : '0')} AS cost_price
       FROM vase
       ORDER BY vase_name
       `
@@ -241,13 +249,15 @@ app.get('/api/vase-colors', async (_req, res) => {
 app.get('/api/main-flowers', async (_req, res) => {
   try {
     const nameColumn = await getExistingColumnName('flower', ['flower_name', 'name']);
-    const priceColumn = await getExistingColumnName('flower', ['flower_price', 'price']);
+    const priceColumn = await getExistingColumnName('flower', ['flower_price', 'price', 'sell_price']);
+    const costColumn = await getExistingColumnName('flower', ['cost_price', 'flower_cost_price']);
     const imageColumn = await getExistingColumnName('flower', ['flower_img', 'image', 'img', 'flower_image_url']);
     const importDateColumn = await getExistingColumnName('flower', ['import_date', 'date_imported', 'imported_at', 'received_date', 'entry_date', 'created_at']);
     const expiryDateColumn = await getExistingColumnName('flower', ['expiry_date', 'expire_date', 'expiration_date', 'expired_at', 'best_before']);
 
     const nameSelectSql = nameColumn ? nameColumn : "CONCAT('ดอกหลัก #', flower_id)";
     const priceSelectSql = priceColumn ? priceColumn : '0';
+    const costSelectSql = costColumn ? costColumn : '0';
     const imageSelectSql = imageColumn ? imageColumn : 'NULL';
     const importDateSelectSql = importDateColumn ? importDateColumn : 'NULL';
     const expiryDateSelectSql = expiryDateColumn ? expiryDateColumn : 'NULL';
@@ -258,6 +268,7 @@ app.get('/api/main-flowers', async (_req, res) => {
         flower_id,
         ${nameSelectSql} AS flower_name,
         ${priceSelectSql} AS flower_price,
+        ${costSelectSql} AS cost_price,
         ${imageSelectSql} AS flower_img,
         ${importDateSelectSql} AS import_date,
         ${expiryDateSelectSql} AS expiry_date
@@ -276,13 +287,15 @@ app.get('/api/main-flowers', async (_req, res) => {
 app.get('/api/filler-flowers', async (_req, res) => {
   try {
     const nameColumn = await getExistingColumnName('filler_flower', ['filler_flower_name', 'flower_name', 'name']);
-    const priceColumn = await getExistingColumnName('filler_flower', ['filler_flower_price', 'flower_price', 'price']);
+    const priceColumn = await getExistingColumnName('filler_flower', ['filler_flower_price', 'flower_price', 'price', 'sell_price']);
+    const costColumn = await getExistingColumnName('filler_flower', ['cost_price', 'filler_flower_cost_price']);
     const imageColumn = await getExistingColumnName('filler_flower', ['filler_flower_img', 'flower_img', 'image', 'img', 'filler_image_url']);
     const importDateColumn = await getExistingColumnName('filler_flower', ['import_date', 'date_imported', 'imported_at', 'received_date', 'entry_date', 'created_at']);
     const expiryDateColumn = await getExistingColumnName('filler_flower', ['expiry_date', 'expire_date', 'expiration_date', 'expired_at', 'best_before']);
 
     const nameSelectSql = nameColumn ? nameColumn : "CONCAT('ดอกแซม #', filler_flower_id)";
     const priceSelectSql = priceColumn ? priceColumn : '0';
+    const costSelectSql = costColumn ? costColumn : (priceColumn ? priceColumn : '0');
     const imageSelectSql = imageColumn ? imageColumn : 'NULL';
     const importDateSelectSql = importDateColumn ? importDateColumn : 'NULL';
     const expiryDateSelectSql = expiryDateColumn ? expiryDateColumn : 'NULL';
@@ -293,6 +306,7 @@ app.get('/api/filler-flowers', async (_req, res) => {
         filler_flower_id AS flower_id,
         ${nameSelectSql} AS flower_name,
         ${priceSelectSql} AS flower_price,
+        ${costSelectSql} AS cost_price,
         ${imageSelectSql} AS filler_flower_img,
         ${imageSelectSql} AS flower_img,
         ${importDateSelectSql} AS import_date,
@@ -325,6 +339,135 @@ app.get('/api/flower-types', async (_req, res) => {
   }
 });
 
+// Update flower price (main flowers)
+app.put('/api/main-flowers/:flowerId', async (req, res) => {
+  try {
+    const flowerId = Number(req.params.flowerId || 0);
+    const { costPrice, sellPrice } = req.body;
+    if (!Number.isFinite(flowerId) || flowerId <= 0) {
+      return res.status(400).json({ error: 'Invalid flower ID' });
+    }
+
+    const priceColumn = await getExistingColumnName('flower', ['flower_price', 'price', 'sell_price']);
+    const costColumn = await getExistingColumnName('flower', ['cost_price', 'flower_cost_price']);
+    
+    console.log(`📝 Updating flower ${flowerId}: sellPrice=${sellPrice}, costPrice=${costPrice}, priceColumn=${priceColumn}, costColumn=${costColumn}`);
+
+    const updates = [];
+    const values = [];
+
+    if (Number.isFinite(sellPrice)) {
+      if (priceColumn) {
+        updates.push(`\`${priceColumn}\` = ?`);
+        values.push(sellPrice);
+      }
+    }
+
+    if (Number.isFinite(costPrice)) {
+      if (costColumn) {
+        updates.push(`\`${costColumn}\` = ?`);
+        values.push(costPrice);
+      }
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'No valid price fields to update' });
+    }
+
+    values.push(flowerId);
+    const sql = `UPDATE flower SET ${updates.join(', ')} WHERE flower_id = ?`;
+    await pool.query(sql, values);
+
+    res.json({ success: true, flowerId, costPrice, sellPrice });
+  } catch (err) {
+    console.error('❌ Update Main Flower Price Error:', err.message);
+    res.status(500).json({ error: 'Failed to update flower price', detail: err.message });
+  }
+});
+
+// Update filler flower price
+app.put('/api/filler-flowers/:flowerId', async (req, res) => {
+  try {
+    const flowerId = Number(req.params.flowerId || 0);
+    const { costPrice, sellPrice } = req.body;
+    if (!Number.isFinite(flowerId) || flowerId <= 0) {
+      return res.status(400).json({ error: 'Invalid filler flower ID' });
+    }
+
+    const priceColumn = await getExistingColumnName('filler_flower', ['filler_flower_price', 'flower_price', 'price', 'sell_price']);
+    const costColumn = await getExistingColumnName('filler_flower', ['cost_price', 'filler_flower_cost_price']);
+
+    const updates = [];
+    const values = [];
+
+    if (Number.isFinite(sellPrice)) {
+      if (priceColumn) {
+        updates.push(`\`${priceColumn}\` = ?`);
+        values.push(sellPrice);
+      }
+    }
+
+    if (Number.isFinite(costPrice)) {
+      if (costColumn) {
+        updates.push(`\`${costColumn}\` = ?`);
+        values.push(costPrice);
+      }
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'No valid price fields to update' });
+    }
+
+    values.push(flowerId);
+    const sql = `UPDATE filler_flower SET ${updates.join(', ')} WHERE filler_flower_id = ?`;
+    await pool.query(sql, values);
+
+    res.json({ success: true, flowerId, costPrice, sellPrice });
+  } catch (err) {
+    console.error('❌ Update Filler Flower Price Error:', err.message);
+    res.status(500).json({ error: 'Failed to update filler flower price', detail: err.message });
+  }
+});
+
+// Update vase price
+app.put('/api/vases/:vaseId', async (req, res) => {
+  try {
+    const vaseId = Number(req.params.vaseId || 0);
+    const { costPrice, sellPrice } = req.body;
+    if (!Number.isFinite(vaseId) || vaseId <= 0) {
+      return res.status(400).json({ error: 'Invalid vase ID' });
+    }
+
+    const priceColumn = await getExistingColumnName('vase', ['vase_price', 'sell_price', 'price']);
+    const costColumn = await getExistingColumnName('vase', ['cost_price', 'vase_cost_price']);
+
+    const updates = [];
+    const values = [];
+
+    if (Number.isFinite(sellPrice) && priceColumn) {
+      updates.push(`\`${priceColumn}\` = ?`);
+      values.push(sellPrice);
+    }
+
+    if (Number.isFinite(costPrice) && costColumn) {
+      updates.push(`\`${costColumn}\` = ?`);
+      values.push(costPrice);
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'No valid price fields to update' });
+    }
+
+    values.push(vaseId);
+    await pool.query(`UPDATE vase SET ${updates.join(', ')} WHERE vase_id = ?`, values);
+
+    res.json({ success: true, vaseId, costPrice, sellPrice });
+  } catch (err) {
+    console.error('❌ Update Vase Price Error:', err.message);
+    res.status(500).json({ error: 'Failed to update vase price', detail: err.message });
+  }
+});
+
 // Bouquet styles
 app.get('/api/bouquet-styles', async (_req, res) => {
   try {
@@ -339,13 +482,64 @@ app.get('/api/bouquet-styles', async (_req, res) => {
 // Cards
 app.get('/api/cards', async (_req, res) => {
   try {
+    const costColumn = await getExistingColumnName('card', ['cost_price', 'card_cost_price']);
+    const sellColumn = await getExistingColumnName('card', ['card_price', 'sell_price', 'price']);
+
     const [rows] = await pool.query(
-      'SELECT card_id, card_name, card_img, card_price FROM card ORDER BY card_name'
+      `
+      SELECT
+        card_id,
+        card_name,
+        card_img,
+        ${sellColumn ? `\`${sellColumn}\`` : '0'} AS card_price,
+        ${costColumn ? `\`${costColumn}\`` : (sellColumn ? `\`${sellColumn}\`` : '0')} AS cost_price
+      FROM card
+      ORDER BY card_name
+      `
     );
     res.json(rows);
   } catch (err) {
     console.error('❌ Cards API Error:', err.message);
     res.status(500).json({ error: 'Failed to load cards', detail: err.message });
+  }
+});
+
+// Update card price
+app.put('/api/cards/:cardId', async (req, res) => {
+  try {
+    const cardId = Number(req.params.cardId || 0);
+    const { costPrice, sellPrice } = req.body;
+    if (!Number.isFinite(cardId) || cardId <= 0) {
+      return res.status(400).json({ error: 'Invalid card ID' });
+    }
+
+    const priceColumn = await getExistingColumnName('card', ['card_price', 'sell_price', 'price']);
+    const costColumn = await getExistingColumnName('card', ['cost_price', 'card_cost_price']);
+
+    const updates = [];
+    const values = [];
+
+    if (Number.isFinite(sellPrice) && priceColumn) {
+      updates.push(`\`${priceColumn}\` = ?`);
+      values.push(sellPrice);
+    }
+
+    if (Number.isFinite(costPrice) && costColumn) {
+      updates.push(`\`${costColumn}\` = ?`);
+      values.push(costPrice);
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'No valid price fields to update' });
+    }
+
+    values.push(cardId);
+    await pool.query(`UPDATE card SET ${updates.join(', ')} WHERE card_id = ?`, values);
+
+    res.json({ success: true, cardId, costPrice, sellPrice });
+  } catch (err) {
+    console.error('❌ Update Card Price Error:', err.message);
+    res.status(500).json({ error: 'Failed to update card price', detail: err.message });
   }
 });
 
@@ -441,6 +635,8 @@ app.get('/api/wrappings/all', async (_req, res) => {
       'img',
       'material_img',
     ]);
+    const costColumn = await getExistingColumnName(wrappingTable, ['cost_price', 'wrapping_cost_price']);
+    const sellColumn = await getExistingColumnName(wrappingTable, ['wrapping_price', 'sell_price', 'price']);
 
     const [rows] = await pool.query(
       `
@@ -449,7 +645,8 @@ app.get('/api/wrappings/all', async (_req, res) => {
         wrapping_type_id,
         wrapping_name,
         ${imageColumn ? `${imageColumn} AS wrapping_material_img, ${imageColumn} AS wrapping_img` : 'NULL AS wrapping_material_img, NULL AS wrapping_img'},
-        wrapping_price
+        ${sellColumn ? `\`${sellColumn}\`` : '0'} AS wrapping_price,
+        ${costColumn ? `\`${costColumn}\`` : (sellColumn ? `\`${sellColumn}\`` : '0')} AS cost_price
       FROM ${wrappingTable}
       ORDER BY wrapping_name
       `
@@ -459,6 +656,50 @@ app.get('/api/wrappings/all', async (_req, res) => {
   } catch (err) {
     console.error('❌ All Wrappings API Error:', err.message);
     res.status(500).json({ error: 'Failed to load all wrapping materials', detail: err.message });
+  }
+});
+
+// Update wrapping price
+app.put('/api/wrappings/:wrappingId', async (req, res) => {
+  try {
+    const wrappingId = Number(req.params.wrappingId || 0);
+    const { costPrice, sellPrice } = req.body;
+    if (!Number.isFinite(wrappingId) || wrappingId <= 0) {
+      return res.status(400).json({ error: 'Invalid wrapping ID' });
+    }
+
+    const wrappingTable = await getExistingTableName(['wrapping_material', 'wrapping']);
+    if (!wrappingTable) {
+      return res.status(404).json({ error: 'Wrapping material table not found' });
+    }
+
+    const priceColumn = await getExistingColumnName(wrappingTable, ['wrapping_price', 'sell_price', 'price']);
+    const costColumn = await getExistingColumnName(wrappingTable, ['cost_price', 'wrapping_cost_price']);
+
+    const updates = [];
+    const values = [];
+
+    if (Number.isFinite(sellPrice) && priceColumn) {
+      updates.push(`\`${priceColumn}\` = ?`);
+      values.push(sellPrice);
+    }
+
+    if (Number.isFinite(costPrice) && costColumn) {
+      updates.push(`\`${costColumn}\` = ?`);
+      values.push(costPrice);
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'No valid price fields to update' });
+    }
+
+    values.push(wrappingId);
+    await pool.query(`UPDATE ${wrappingTable} SET ${updates.join(', ')} WHERE wrapping_id = ?`, values);
+
+    res.json({ success: true, wrappingId, costPrice, sellPrice });
+  } catch (err) {
+    console.error('❌ Update Wrapping Price Error:', err.message);
+    res.status(500).json({ error: 'Failed to update wrapping price', detail: err.message });
   }
 });
 
@@ -489,13 +730,17 @@ app.get('/api/ribbon-colors', async (req, res) => {
       return res.status(400).json({ error: 'ribbon_id is required' });
     }
 
+    const costColumn = await getExistingColumnName('ribbon_color', ['cost_price', 'ribbon_color_cost_price', 'ribbon_cost_price']);
+    const sellColumn = await getExistingColumnName('ribbon_color', ['ribbon_color_price', 'ribbon_price', 'sell_price', 'price']);
+
     const [rows] = await pool.query(
       `
       SELECT
         ribbon_color_id,
         ribbon_id,
         ribbon_color_name,
-        hex
+        ${sellColumn ? `\`${sellColumn}\`` : '0'} AS ribbon_price,
+        ${costColumn ? `\`${costColumn}\`` : (sellColumn ? `\`${sellColumn}\`` : '0')} AS cost_price
       FROM ribbon_color
       WHERE ribbon_id = ?
       ORDER BY ribbon_color_name
@@ -507,6 +752,731 @@ app.get('/api/ribbon-colors', async (req, res) => {
   } catch (err) {
     console.error('❌ Ribbon Colors API Error:', err.message);
     res.status(500).json({ error: 'Failed to load ribbon colors', detail: err.message });
+  }
+});
+
+// Update ribbon color price
+app.put('/api/ribbon-colors/:ribbonColorId', async (req, res) => {
+  try {
+    const ribbonColorId = Number(req.params.ribbonColorId || 0);
+    const { costPrice, sellPrice } = req.body;
+    if (!Number.isFinite(ribbonColorId) || ribbonColorId <= 0) {
+      return res.status(400).json({ error: 'Invalid ribbon color ID' });
+    }
+
+    const priceColumn = await getExistingColumnName('ribbon_color', ['ribbon_color_price', 'ribbon_price', 'sell_price', 'price']);
+    const costColumn = await getExistingColumnName('ribbon_color', ['cost_price', 'ribbon_color_cost_price', 'ribbon_cost_price']);
+
+    const updates = [];
+    const values = [];
+
+    if (Number.isFinite(sellPrice) && priceColumn) {
+      updates.push(`\`${priceColumn}\` = ?`);
+      values.push(sellPrice);
+    }
+
+    if (Number.isFinite(costPrice) && costColumn) {
+      updates.push(`\`${costColumn}\` = ?`);
+      values.push(costPrice);
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'No valid price fields to update' });
+    }
+
+    values.push(ribbonColorId);
+    await pool.query(`UPDATE ribbon_color SET ${updates.join(', ')} WHERE ribbon_color_id = ?`, values);
+
+    res.json({ success: true, ribbonColorId, costPrice, sellPrice });
+  } catch (err) {
+    console.error('❌ Update Ribbon Color Price Error:', err.message);
+    res.status(500).json({ error: 'Failed to update ribbon color price', detail: err.message });
+  }
+});
+
+const resolveBranchStockConfig = async (sourceRaw) => {
+  const source = String(sourceRaw || '').trim().toLowerCase();
+  const sourceMap = {
+    product: {
+      tableCandidates: ['branch_product_container'],
+      itemColumnCandidates: ['product_id'],
+      stockColumnCandidates: ['product_stock_qty'],
+      supportsDates: false,
+    },
+    vase: {
+      tableCandidates: ['branch_vase_container', 'branch_product_container'],
+      itemColumnCandidates: ['vase_id', 'product_id'],
+      stockColumnCandidates: ['vase_stock_qty', 'product_stock_qty'],
+      supportsDates: false,
+    },
+    card: {
+      tableCandidates: ['branch_card_container'],
+      itemColumnCandidates: ['card_id'],
+      stockColumnCandidates: ['card_stock_qty'],
+      supportsDates: false,
+    },
+    flower: {
+      tableCandidates: ['branch_flower_container'],
+      itemColumnCandidates: ['flower_id'],
+      stockColumnCandidates: ['flower_stock_qty'],
+      supportsDates: true,
+    },
+    filler_flower: {
+      tableCandidates: ['branch_filler_container'],
+      itemColumnCandidates: ['filler_flower_id'],
+      stockColumnCandidates: ['filler_flower_stock_qty'],
+      supportsDates: true,
+    },
+    wrapping: {
+      tableCandidates: ['branch_wrapping_container'],
+      itemColumnCandidates: ['wrapping_id'],
+      stockColumnCandidates: ['wrapping_stock_qty'],
+      supportsDates: false,
+    },
+    ribbon: {
+      tableCandidates: ['branch_ribbon_container'],
+      itemColumnCandidates: ['ribbon_color_id', 'ribbon_id'],
+      stockColumnCandidates: ['ribbon_stock_qty'],
+      supportsDates: false,
+    },
+  };
+
+  const base = sourceMap[source];
+  if (!base) return null;
+
+  const tableName = await getExistingTableName(base.tableCandidates);
+  if (!tableName) return null;
+
+  const itemColumn = await getExistingColumnName(tableName, base.itemColumnCandidates);
+  const stockColumn = await getExistingColumnName(tableName, base.stockColumnCandidates);
+  const branchColumn = await getExistingColumnName(tableName, ['branch_id']);
+  const isActiveColumn = await getExistingColumnName(tableName, ['is_active']);
+  const receivedDateColumn = base.supportsDates
+    ? await getExistingColumnName(tableName, ['received_date', 'import_date'])
+    : null;
+  const expiryDateColumn = base.supportsDates
+    ? await getExistingColumnName(tableName, ['expiry_date'])
+    : null;
+  const ribbonIdColumn = source === 'ribbon'
+    ? await getExistingColumnName(tableName, ['ribbon_id'])
+    : null;
+
+  if (!itemColumn || !stockColumn || !branchColumn) return null;
+
+  return {
+    source,
+    tableName,
+    itemColumn,
+    stockColumn,
+    branchColumn,
+    isActiveColumn,
+    receivedDateColumn,
+    expiryDateColumn,
+    ribbonIdColumn,
+  };
+};
+
+const getPrimaryKeyColumn = async (tableName) => {
+  const [rows] = await pool.query(`SHOW COLUMNS FROM ${tableName}`);
+  const pkRow = (Array.isArray(rows) ? rows : []).find((row) => String(row.Key || '').toUpperCase() === 'PRI');
+  return pkRow ? String(pkRow.Field || '') : null;
+};
+
+const sanitizePositiveInt = (value, fallback = 0) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  const normalized = Math.floor(parsed);
+  return normalized > 0 ? normalized : fallback;
+};
+
+const addStockRequirement = (bucket, source, itemId, qty, label) => {
+  const normalizedItemId = sanitizePositiveInt(itemId);
+  const normalizedQty = sanitizePositiveInt(qty);
+  if (!normalizedItemId || !normalizedQty) {
+    return;
+  }
+
+  const key = `${source}:${normalizedItemId}`;
+  const existing = bucket.get(key);
+  if (existing) {
+    existing.quantity += normalizedQty;
+    return;
+  }
+
+  bucket.set(key, {
+    source,
+    itemId: normalizedItemId,
+    quantity: normalizedQty,
+    label: String(label || `${source} #${normalizedItemId}`),
+  });
+};
+
+const resolveOrderStockRequirements = async (conn, rawItems) => {
+  const requirementMap = new Map();
+  const items = Array.isArray(rawItems) ? rawItems : [];
+
+  const flowerByNameCache = new Map();
+  const fillerByNameCache = new Map();
+  const wrappingByNameCache = new Map();
+  const cardByNameCache = new Map();
+  const ribbonByNameCache = new Map();
+  const ribbonColorByKeyCache = new Map();
+  const vaseByNameAndProductCache = new Map();
+
+  const resolveFlowerIdByName = async (flowerName) => {
+    const key = String(flowerName || '').trim().toLowerCase();
+    if (!key) return null;
+    if (flowerByNameCache.has(key)) return flowerByNameCache.get(key);
+    const [rows] = await conn.query('SELECT flower_id FROM flower WHERE flower_name = ? LIMIT 1', [flowerName]);
+    const resolvedId = Array.isArray(rows) && rows.length > 0 ? sanitizePositiveInt(rows[0].flower_id) : null;
+    flowerByNameCache.set(key, resolvedId || null);
+    return resolvedId || null;
+  };
+
+  const resolveFillerIdByName = async (fillerName) => {
+    const key = String(fillerName || '').trim().toLowerCase();
+    if (!key) return null;
+    if (fillerByNameCache.has(key)) return fillerByNameCache.get(key);
+    const [rows] = await conn.query(
+      'SELECT filler_flower_id FROM filler_flower WHERE filler_flower_name = ? LIMIT 1',
+      [fillerName]
+    );
+    const resolvedId = Array.isArray(rows) && rows.length > 0 ? sanitizePositiveInt(rows[0].filler_flower_id) : null;
+    fillerByNameCache.set(key, resolvedId || null);
+    return resolvedId || null;
+  };
+
+  const resolveWrappingIdByName = async (wrappingName) => {
+    const key = String(wrappingName || '').trim().toLowerCase();
+    if (!key) return null;
+    if (wrappingByNameCache.has(key)) return wrappingByNameCache.get(key);
+    const [rows] = await conn.query(
+      'SELECT wrapping_id FROM wrapping_material WHERE wrapping_name = ? LIMIT 1',
+      [wrappingName]
+    );
+    const resolvedId = Array.isArray(rows) && rows.length > 0 ? sanitizePositiveInt(rows[0].wrapping_id) : null;
+    wrappingByNameCache.set(key, resolvedId || null);
+    return resolvedId || null;
+  };
+
+  const resolveCardIdByName = async (cardName) => {
+    const key = String(cardName || '').trim().toLowerCase();
+    if (!key) return null;
+    if (cardByNameCache.has(key)) return cardByNameCache.get(key);
+    const [rows] = await conn.query('SELECT card_id FROM card WHERE card_name = ? LIMIT 1', [cardName]);
+    const resolvedId = Array.isArray(rows) && rows.length > 0 ? sanitizePositiveInt(rows[0].card_id) : null;
+    cardByNameCache.set(key, resolvedId || null);
+    return resolvedId || null;
+  };
+
+  const resolveRibbonIds = async (ribbonName, ribbonColorName) => {
+    const ribbonKey = String(ribbonName || '').trim().toLowerCase();
+    if (!ribbonKey) {
+      return { ribbonId: null, ribbonColorId: null };
+    }
+
+    let ribbonId = ribbonByNameCache.get(ribbonKey);
+    if (!ribbonByNameCache.has(ribbonKey)) {
+      const [ribbonRows] = await conn.query('SELECT ribbon_id FROM ribbon WHERE ribbon_name = ? LIMIT 1', [ribbonName]);
+      ribbonId = Array.isArray(ribbonRows) && ribbonRows.length > 0 ? sanitizePositiveInt(ribbonRows[0].ribbon_id) : null;
+      ribbonByNameCache.set(ribbonKey, ribbonId || null);
+    }
+
+    if (!ribbonId) {
+      return { ribbonId: null, ribbonColorId: null };
+    }
+
+    const colorKey = `${ribbonId}:${String(ribbonColorName || '').trim().toLowerCase()}`;
+    if (ribbonColorByKeyCache.has(colorKey)) {
+      return { ribbonId, ribbonColorId: ribbonColorByKeyCache.get(colorKey) || null };
+    }
+
+    let ribbonColorId = null;
+    if (ribbonColorName) {
+      const [colorRows] = await conn.query(
+        'SELECT ribbon_color_id FROM ribbon_color WHERE ribbon_id = ? AND ribbon_color_name = ? LIMIT 1',
+        [ribbonId, ribbonColorName]
+      );
+      ribbonColorId = Array.isArray(colorRows) && colorRows.length > 0
+        ? sanitizePositiveInt(colorRows[0].ribbon_color_id)
+        : null;
+    }
+
+    ribbonColorByKeyCache.set(colorKey, ribbonColorId || null);
+    return { ribbonId, ribbonColorId: ribbonColorId || null };
+  };
+
+  const resolveVaseIdByNameAndProduct = async (vaseName, productId) => {
+    const nameKey = String(vaseName || '').trim().toLowerCase();
+    const productKey = sanitizePositiveInt(productId);
+    if (!nameKey) return null;
+
+    const cacheKey = `${nameKey}:${productKey || 0}`;
+    if (vaseByNameAndProductCache.has(cacheKey)) {
+      return vaseByNameAndProductCache.get(cacheKey);
+    }
+
+    let rows = [];
+    if (productKey > 0) {
+      const [matchedRows] = await conn.query(
+        'SELECT vase_id FROM vase WHERE vase_name = ? AND product_id = ? LIMIT 1',
+        [vaseName, productKey]
+      );
+      rows = Array.isArray(matchedRows) ? matchedRows : [];
+    }
+
+    if (!Array.isArray(rows) || rows.length === 0) {
+      const [fallbackRows] = await conn.query('SELECT vase_id FROM vase WHERE vase_name = ? LIMIT 1', [vaseName]);
+      rows = Array.isArray(fallbackRows) ? fallbackRows : [];
+    }
+
+    const resolvedId = rows.length > 0 ? sanitizePositiveInt(rows[0].vase_id) : null;
+    vaseByNameAndProductCache.set(cacheKey, resolvedId || null);
+    return resolvedId || null;
+  };
+
+  for (const item of items) {
+    const qty = sanitizePositiveInt(item?.qty, 1);
+    const productId = sanitizePositiveInt(item?.product_id || item?.productId);
+    const customization = item?.customization || {};
+
+    if (productId > 0) {
+      addStockRequirement(requirementMap, 'product', productId, qty, `สินค้า #${productId}`);
+    }
+
+    if (Array.isArray(customization.mainFlowers) && customization.mainFlowers.length > 0) {
+      for (const flowerItem of customization.mainFlowers) {
+        let flowerId = sanitizePositiveInt(flowerItem?.id);
+        if (!flowerId && flowerItem?.name) {
+          flowerId = sanitizePositiveInt(await resolveFlowerIdByName(flowerItem.name));
+        }
+        const flowerQty = sanitizePositiveInt(flowerItem?.count, 1) * qty;
+        if (flowerId > 0) {
+          addStockRequirement(requirementMap, 'flower', flowerId, flowerQty, String(flowerItem?.name || `ดอกไม้ #${flowerId}`));
+        }
+      }
+    } else if (Array.isArray(item?.flowers) && item.flowers.length > 0) {
+      for (const flowerIdRaw of item.flowers) {
+        const flowerId = sanitizePositiveInt(flowerIdRaw);
+        if (flowerId > 0) {
+          addStockRequirement(requirementMap, 'flower', flowerId, qty, `ดอกไม้ #${flowerId}`);
+        }
+      }
+    }
+
+    if (customization.fillerFlower) {
+      const fillerId = sanitizePositiveInt(await resolveFillerIdByName(customization.fillerFlower));
+      if (fillerId > 0) {
+        addStockRequirement(requirementMap, 'filler_flower', fillerId, qty, String(customization.fillerFlower));
+      }
+    }
+
+    if (customization.wrapperKraftPattern) {
+      const wrappingId = sanitizePositiveInt(await resolveWrappingIdByName(customization.wrapperKraftPattern));
+      if (wrappingId > 0) {
+        addStockRequirement(requirementMap, 'wrapping', wrappingId, qty, String(customization.wrapperKraftPattern));
+      }
+    }
+
+    if (customization.ribbonStyle) {
+      const { ribbonId, ribbonColorId } = await resolveRibbonIds(customization.ribbonStyle, customization.ribbonColor);
+      if (ribbonColorId > 0) {
+        addStockRequirement(
+          requirementMap,
+          'ribbon',
+          ribbonColorId,
+          qty,
+          `${String(customization.ribbonStyle)} ${String(customization.ribbonColor || '')}`.trim()
+        );
+      } else if (ribbonId > 0) {
+        addStockRequirement(requirementMap, 'ribbon', ribbonId, qty, String(customization.ribbonStyle));
+      }
+    }
+
+    if (customization.hasCard && customization.cardTemplate) {
+      const cardId = sanitizePositiveInt(await resolveCardIdByName(customization.cardTemplate));
+      if (cardId > 0) {
+        addStockRequirement(requirementMap, 'card', cardId, qty, String(customization.cardTemplate));
+      }
+    }
+
+    if (customization.vaseShape) {
+      const vaseId = sanitizePositiveInt(await resolveVaseIdByNameAndProduct(customization.vaseShape, productId));
+      if (vaseId > 0) {
+        addStockRequirement(requirementMap, 'vase', vaseId, qty, String(customization.vaseShape));
+      }
+    }
+  }
+
+  return Array.from(requirementMap.values());
+};
+
+const getStockAvailabilityForRequirements = async (conn, branchIdRaw, requirements, options = {}) => {
+  const branchId = sanitizePositiveInt(branchIdRaw);
+  const forUpdate = Boolean(options.forUpdate);
+  const normalizedRequirements = Array.isArray(requirements) ? requirements : [];
+  const insufficient = [];
+  const entries = [];
+
+  for (const requirement of normalizedRequirements) {
+    const config = await resolveBranchStockConfig(requirement.source);
+    if (!config) {
+      continue;
+    }
+
+    const primaryKeyColumn = await getPrimaryKeyColumn(config.tableName);
+    const selectedColumns = [];
+    if (primaryKeyColumn) {
+      selectedColumns.push(`${primaryKeyColumn} AS row_id`);
+    }
+    selectedColumns.push(`COALESCE(${config.stockColumn}, 0) AS stock_qty`);
+    if (config.receivedDateColumn) {
+      selectedColumns.push(`${config.receivedDateColumn} AS received_date`);
+    }
+    if (config.expiryDateColumn) {
+      selectedColumns.push(`${config.expiryDateColumn} AS expiry_date`);
+    }
+
+    const whereClauses = [`${config.branchColumn} = ?`, `${config.itemColumn} = ?`];
+    const queryParams = [branchId, requirement.itemId];
+    if (config.isActiveColumn) {
+      whereClauses.push(`COALESCE(${config.isActiveColumn}, 1) = 1`);
+    }
+    if (config.expiryDateColumn) {
+      whereClauses.push(`(${config.expiryDateColumn} IS NULL OR ${config.expiryDateColumn} >= CURDATE())`);
+    }
+
+    const orderClauses = [];
+    if (config.expiryDateColumn) {
+      orderClauses.push(`${config.expiryDateColumn} IS NULL`, `${config.expiryDateColumn} ASC`);
+    }
+    if (config.receivedDateColumn) {
+      orderClauses.push(`${config.receivedDateColumn} ASC`);
+    }
+    if (primaryKeyColumn) {
+      orderClauses.push(`${primaryKeyColumn} ASC`);
+    }
+
+    const lockClause = forUpdate ? ' FOR UPDATE' : '';
+    const [stockRows] = await conn.query(
+      `
+      SELECT ${selectedColumns.join(', ')}
+      FROM ${config.tableName}
+      WHERE ${whereClauses.join(' AND ')}
+      ${orderClauses.length > 0 ? `ORDER BY ${orderClauses.join(', ')}` : ''}
+      ${lockClause}
+      `,
+      queryParams
+    );
+
+    const rows = Array.isArray(stockRows)
+      ? stockRows.map((row) => ({
+          rowId: sanitizePositiveInt(row.row_id),
+          stockQty: Number(row.stock_qty || 0),
+          receivedDate: row.received_date || null,
+          expiryDate: row.expiry_date || null,
+        }))
+      : [];
+    const available = rows.reduce((sum, row) => sum + Math.max(0, Number(row.stockQty || 0)), 0);
+
+    const entry = {
+      requirement,
+      config: {
+        ...config,
+        primaryKeyColumn,
+      },
+      rows,
+      available,
+    };
+    entries.push(entry);
+
+    if (available < requirement.quantity) {
+      insufficient.push({
+        source: requirement.source,
+        itemId: requirement.itemId,
+        label: requirement.label,
+        requiredQty: requirement.quantity,
+        availableQty: available,
+      });
+    }
+  }
+
+  return {
+    isAvailable: insufficient.length === 0,
+    insufficient,
+    entries,
+  };
+};
+
+const applyStockDeductions = async (conn, branchIdRaw, stockEntries) => {
+  const branchId = sanitizePositiveInt(branchIdRaw);
+  for (const entry of stockEntries) {
+    let remaining = sanitizePositiveInt(entry?.requirement?.quantity);
+    if (remaining <= 0) continue;
+
+    const config = entry.config;
+    const rows = Array.isArray(entry.rows) ? entry.rows : [];
+
+    for (const row of rows) {
+      if (remaining <= 0) break;
+
+      const rowStock = Math.max(0, Number(row.stockQty || 0));
+      if (rowStock <= 0) continue;
+
+      const deductQty = Math.min(rowStock, remaining);
+      if (deductQty <= 0) continue;
+
+      let result;
+      if (config.primaryKeyColumn && row.rowId > 0) {
+        [result] = await conn.query(
+          `
+          UPDATE ${config.tableName}
+          SET ${config.stockColumn} = ${config.stockColumn} - ?
+          WHERE ${config.primaryKeyColumn} = ?
+            AND COALESCE(${config.stockColumn}, 0) >= ?
+          `,
+          [deductQty, row.rowId, deductQty]
+        );
+      } else {
+        const fallbackWhere = [`${config.branchColumn} = ?`, `${config.itemColumn} = ?`, `COALESCE(${config.stockColumn}, 0) >= ?`];
+        const fallbackParams = [branchId, entry.requirement.itemId, deductQty];
+        if (config.isActiveColumn) {
+          fallbackWhere.push(`COALESCE(${config.isActiveColumn}, 1) = 1`);
+        }
+        [result] = await conn.query(
+          `
+          UPDATE ${config.tableName}
+          SET ${config.stockColumn} = ${config.stockColumn} - ?
+          WHERE ${fallbackWhere.join(' AND ')}
+          LIMIT 1
+          `,
+          [deductQty, ...fallbackParams]
+        );
+      }
+
+      if (!result || Number(result.affectedRows || 0) === 0) {
+        throw new Error(`ตัดสต๊อกไม่สำเร็จสำหรับ ${entry.requirement.label}`);
+      }
+
+      remaining -= deductQty;
+    }
+
+    if (remaining > 0) {
+      throw new Error(`สต๊อกไม่พอสำหรับ ${entry.requirement.label}`);
+    }
+  }
+};
+
+app.post('/api/branches/:branchId/stock/check', async (req, res) => {
+  const conn = await pool.getConnection();
+  try {
+    const branchId = sanitizePositiveInt(req.params.branchId);
+    if (!branchId) {
+      return res.status(400).json({ isAvailable: false, message: 'branchId ไม่ถูกต้อง' });
+    }
+
+    const items = Array.isArray(req.body?.items) ? req.body.items : [];
+    if (items.length === 0) {
+      return res.json({ isAvailable: true, insufficient: [] });
+    }
+
+    const requirements = await resolveOrderStockRequirements(conn, items);
+    const stockCheck = await getStockAvailabilityForRequirements(conn, branchId, requirements, { forUpdate: false });
+
+    if (!stockCheck.isAvailable) {
+      return res.json({
+        isAvailable: false,
+        message: 'สาขานี้มีสินค้าบางรายการไม่เพียงพอ',
+        insufficient: stockCheck.insufficient,
+      });
+    }
+
+    return res.json({
+      isAvailable: true,
+      insufficient: [],
+    });
+  } catch (err) {
+    console.error('❌ Branch Stock Check API Error:', err.message);
+    return res.status(500).json({
+      isAvailable: false,
+      message: 'ตรวจสอบสต๊อกไม่สำเร็จ',
+      detail: err.message,
+    });
+  } finally {
+    conn.release();
+  }
+});
+
+app.get('/api/manager/branch-stocks/:branchId', async (req, res) => {
+  try {
+    const branchId = Number(req.params.branchId);
+    if (!Number.isFinite(branchId) || branchId <= 0) {
+      return res.status(400).json({ error: 'invalid branchId' });
+    }
+
+    const sources = ['product', 'vase', 'card', 'flower', 'filler_flower', 'wrapping', 'ribbon'];
+    const result = {};
+
+    for (const source of sources) {
+      const config = await resolveBranchStockConfig(source);
+      if (!config) {
+        result[source] = [];
+        continue;
+      }
+
+      const activeFilter = config.isActiveColumn
+        ? ` AND COALESCE(${config.isActiveColumn}, 1) = 1`
+        : '';
+
+      const [rows] = await pool.query(
+        `
+        SELECT
+          ${config.itemColumn} AS item_id,
+          COALESCE(${config.stockColumn}, 0) AS stock_qty,
+          ${config.receivedDateColumn ? config.receivedDateColumn : 'NULL'} AS received_date,
+          ${config.expiryDateColumn ? config.expiryDateColumn : 'NULL'} AS expiry_date
+        FROM ${config.tableName}
+        WHERE ${config.branchColumn} = ?${activeFilter}
+        `,
+        [branchId]
+      );
+
+      result[source] = Array.isArray(rows)
+        ? rows.map((row) => ({
+            item_id: Number(row.item_id || 0),
+            stock_qty: Number(row.stock_qty || 0),
+            received_date: row.received_date || null,
+            expiry_date: row.expiry_date || null,
+          }))
+        : [];
+    }
+
+    return res.json(result);
+  } catch (err) {
+    console.error('❌ Branch stocks API Error:', err.message);
+    return res.status(500).json({ error: 'Failed to load branch stocks', detail: err.message });
+  }
+});
+
+app.put('/api/manager/branch-stocks/:branchId', async (req, res) => {
+  try {
+    const branchId = Number(req.params.branchId);
+    const source = String(req.body?.source || '').trim().toLowerCase();
+    const itemId = Number(req.body?.item_id);
+    const stockQty = Number(req.body?.stock_qty);
+    const receivedDate = req.body?.received_date || null;
+    const expiryDate = req.body?.expiry_date || null;
+
+    if (!Number.isFinite(branchId) || branchId <= 0) {
+      return res.status(400).json({ error: 'invalid branchId' });
+    }
+    if (!source) {
+      return res.status(400).json({ error: 'source is required' });
+    }
+    if (!Number.isFinite(itemId) || itemId <= 0) {
+      return res.status(400).json({ error: 'item_id is required' });
+    }
+    if (!Number.isFinite(stockQty) || stockQty < 0) {
+      return res.status(400).json({ error: 'stock_qty must be >= 0' });
+    }
+
+    const config = await resolveBranchStockConfig(source);
+    if (!config) {
+      return res.status(400).json({ error: `unsupported source: ${source}` });
+    }
+
+    const [existingRows] = await pool.query(
+      `
+      SELECT 1
+      FROM ${config.tableName}
+      WHERE ${config.branchColumn} = ? AND ${config.itemColumn} = ?
+      LIMIT 1
+      `,
+      [branchId, itemId]
+    );
+
+    let resolvedRibbonId = null;
+    if (source === 'ribbon' && config.ribbonIdColumn && config.itemColumn === 'ribbon_color_id') {
+      const colorRibbonIdColumn = await getExistingColumnName('ribbon_color', ['ribbon_id']);
+      if (colorRibbonIdColumn) {
+        const [ribbonRows] = await pool.query(
+          `SELECT ${colorRibbonIdColumn} AS ribbon_id FROM ribbon_color WHERE ribbon_color_id = ? LIMIT 1`,
+          [itemId]
+        );
+        resolvedRibbonId = Number(ribbonRows?.[0]?.ribbon_id || 0) || null;
+      }
+    }
+
+    if (Array.isArray(existingRows) && existingRows.length > 0) {
+      const updateClauses = [`${config.stockColumn} = ?`];
+      const updateParams = [Math.trunc(stockQty)];
+
+      if (config.receivedDateColumn) {
+        updateClauses.push(`${config.receivedDateColumn} = ?`);
+        updateParams.push(receivedDate || null);
+      }
+      if (config.expiryDateColumn) {
+        updateClauses.push(`${config.expiryDateColumn} = ?`);
+        updateParams.push(expiryDate || null);
+      }
+      if (config.ribbonIdColumn && resolvedRibbonId) {
+        updateClauses.push(`${config.ribbonIdColumn} = ?`);
+        updateParams.push(resolvedRibbonId);
+      }
+      if (config.isActiveColumn) {
+        updateClauses.push(`${config.isActiveColumn} = 1`);
+      }
+
+      updateParams.push(branchId, itemId);
+
+      await pool.query(
+        `
+        UPDATE ${config.tableName}
+        SET ${updateClauses.join(', ')}
+        WHERE ${config.branchColumn} = ? AND ${config.itemColumn} = ?
+        `,
+        updateParams
+      );
+    } else {
+      const insertColumns = [config.branchColumn, config.itemColumn, config.stockColumn];
+      const insertValues = [branchId, itemId, Math.trunc(stockQty)];
+
+      if (config.receivedDateColumn) {
+        insertColumns.push(config.receivedDateColumn);
+        insertValues.push(receivedDate || null);
+      }
+      if (config.expiryDateColumn) {
+        insertColumns.push(config.expiryDateColumn);
+        insertValues.push(expiryDate || null);
+      }
+      if (config.ribbonIdColumn && resolvedRibbonId) {
+        insertColumns.push(config.ribbonIdColumn);
+        insertValues.push(resolvedRibbonId);
+      }
+      if (config.isActiveColumn) {
+        insertColumns.push(config.isActiveColumn);
+        insertValues.push(1);
+      }
+
+      const placeholders = insertColumns.map(() => '?').join(', ');
+      await pool.query(
+        `INSERT INTO ${config.tableName} (${insertColumns.join(', ')}) VALUES (${placeholders})`,
+        insertValues
+      );
+    }
+
+    return res.json({
+      ok: true,
+      source,
+      branch_id: branchId,
+      item_id: itemId,
+      stock_qty: Math.trunc(stockQty),
+      received_date: config.receivedDateColumn ? (receivedDate || null) : null,
+      expiry_date: config.expiryDateColumn ? (expiryDate || null) : null,
+    });
+  } catch (err) {
+    console.error('❌ Update branch stock API Error:', err.message);
+    return res.status(500).json({ error: 'Failed to update branch stock', detail: err.message });
   }
 });
 
@@ -1147,12 +2117,17 @@ app.get('/api/promotions', async (_req, res) => {
         p.start_date,
         p.end_date,
         p.is_active,
+        p.is_allflower,
         p.promotion_type_id,
         pt.promotion_type_name,
+        COUNT(DISTINCT o.order_id) AS used_count,
+        GROUP_CONCAT(DISTINCT pf.flower_id ORDER BY pf.flower_id) AS flower_ids,
         GROUP_CONCAT(DISTINCT pml.member_level_id ORDER BY pml.member_level_id) as member_level_ids,
         GROUP_CONCAT(DISTINCT ml.member_level_name ORDER BY pml.member_level_id SEPARATOR '|') as member_level_names
       FROM promotion p
       LEFT JOIN promotion_type pt ON p.promotion_type_id = pt.promotion_type_id
+      LEFT JOIN orders o ON o.promotion_id = p.promotion_id
+      LEFT JOIN promotion_flower pf ON pf.promotion_id = p.promotion_id
       LEFT JOIN promotion_member_level pml ON p.promotion_id = pml.promotion_id
       LEFT JOIN member_level ml ON pml.member_level_id = ml.member_level_id
       WHERE p.is_active = 1
@@ -1193,6 +2168,12 @@ app.get('/api/promotions', async (_req, res) => {
       const memberLevelNames = row.member_level_names
         ? row.member_level_names.split('|').filter(Boolean)
         : [];
+      const flowerIds = row.flower_ids
+        ? String(row.flower_ids)
+            .split(',')
+            .map((id) => Number(id))
+            .filter((id) => Number.isInteger(id) && id > 0)
+        : [];
 
       return {
         promotion_id: row.promotion_id,
@@ -1209,6 +2190,9 @@ app.get('/api/promotions', async (_req, res) => {
         endDate: row.end_date,
         promotionTypeId: row.promotion_type_id,
         promotionTypeName: row.promotion_type_name || '',
+        usedCount: Number(row.used_count || 0),
+        isAllFlower: Number(row.is_allflower || 0) === 1,
+        flowerIds,
         memberLevelIds: memberLevelIds,
         memberLevelNames: memberLevelNames,
       };
@@ -1220,6 +2204,760 @@ app.get('/api/promotions', async (_req, res) => {
     res.status(500).json({ 
       error: 'Failed to load promotions',
       detail: err.message 
+    });
+  }
+});
+
+app.post('/api/promotions/validate', async (req, res) => {
+  try {
+    const payload = req.body || {};
+    const code = String(payload.code || '').trim().toUpperCase();
+    const subtotal = Number(payload.subtotal || 0);
+    const deliveryType = String(payload.deliveryType || 'delivery').toLowerCase();
+    const memberLevelName = String(payload.memberLevelName || '').trim().toLowerCase();
+    const customerPhone = String(payload.customerPhone || '').trim();
+    const cartFlowerIds = parseIdArray(payload.flowerIds);
+
+    if (!code) {
+      return res.status(400).json({ valid: false, message: 'กรุณาระบุโค้ดโปรโมชั่น' });
+    }
+
+    if (!Number.isFinite(subtotal) || subtotal < 0) {
+      return res.status(400).json({ valid: false, message: 'ยอดสั่งซื้อไม่ถูกต้อง' });
+    }
+
+    const [promotionRows] = await pool.query(
+      `
+      SELECT
+        p.promotion_id,
+        p.promotion_name,
+        p.promotion_code,
+        p.discount,
+        p.max_discount,
+        p.minimum_order_amount,
+        p.description,
+        p.usage_limit,
+        p.per_user_limit,
+        p.start_date,
+        p.end_date,
+        p.is_allbranch,
+        p.is_allflower,
+        p.is_active,
+        pt.promotion_type_name
+      FROM promotion p
+      LEFT JOIN promotion_type pt ON p.promotion_type_id = pt.promotion_type_id
+      WHERE UPPER(TRIM(p.promotion_code)) = UPPER(TRIM(?))
+      LIMIT 1
+      `,
+      [code]
+    );
+
+    const promotion = Array.isArray(promotionRows) ? promotionRows[0] : null;
+    if (!promotion) {
+      return res.json({ valid: false, message: 'ไม่พบโค้ดโปรโมชั่นนี้' });
+    }
+
+    if (Number(promotion.is_active || 0) !== 1) {
+      return res.json({ valid: false, message: 'โค้ดนี้ถูกปิดใช้งานแล้ว' });
+    }
+
+    const now = new Date();
+    const startDate = promotion.start_date ? new Date(promotion.start_date) : null;
+    const endDate = promotion.end_date ? new Date(promotion.end_date) : null;
+
+    if (startDate && now < startDate) {
+      return res.json({ valid: false, message: 'โค้ดยังไม่ถึงวันเริ่มใช้งาน' });
+    }
+
+    if (endDate && now > endDate) {
+      return res.json({ valid: false, message: 'โค้ดหมดอายุแล้ว' });
+    }
+
+    const minSubtotal = Number(promotion.minimum_order_amount || 0);
+    if (subtotal < minSubtotal) {
+      return res.json({
+        valid: false,
+        message: `โค้ดนี้ใช้ได้เมื่อยอดซื้อขั้นต่ำ ฿${minSubtotal.toLocaleString()}`,
+      });
+    }
+
+    const [usageRows] = await pool.query(
+      'SELECT COUNT(*) AS used_count FROM orders WHERE promotion_id = ?',
+      [promotion.promotion_id]
+    );
+    const usedCount = Number((Array.isArray(usageRows) ? usageRows[0]?.used_count : 0) || 0);
+    const usageLimit = promotion.usage_limit === null ? null : Number(promotion.usage_limit || 0);
+    if (usageLimit !== null && usageLimit > 0 && usedCount >= usageLimit) {
+      return res.json({ valid: false, message: 'โค้ดนี้ถูกใช้ครบจำนวนแล้ว' });
+    }
+
+    const promotionMemberTable = await getExistingTableName(['promotion_member', 'promotion_member_level']);
+    const memberLevelIdCol = promotionMemberTable
+      ? await getExistingColumnName(promotionMemberTable, ['member_level_id'])
+      : null;
+
+    let memberLevelIds = [];
+    let memberLevelNames = [];
+    if (promotionMemberTable && memberLevelIdCol) {
+      const [memberRows] = await pool.query(
+        `
+        SELECT pm.\`${memberLevelIdCol}\` AS member_level_id, ml.member_level_name
+        FROM \`${promotionMemberTable}\` pm
+        LEFT JOIN member_level ml ON ml.member_level_id = pm.\`${memberLevelIdCol}\`
+        WHERE pm.promotion_id = ?
+        `,
+        [promotion.promotion_id]
+      );
+      memberLevelIds = (Array.isArray(memberRows) ? memberRows : [])
+        .map((row) => Number(row.member_level_id))
+        .filter((v) => Number.isInteger(v) && v > 0);
+      memberLevelNames = (Array.isArray(memberRows) ? memberRows : [])
+        .map((row) => String(row.member_level_name || '').trim())
+        .filter(Boolean);
+    }
+
+    if (memberLevelNames.length > 0) {
+      if (!memberLevelName) {
+        return res.json({ valid: false, message: 'โค้ดนี้จำกัดระดับสมาชิก' });
+      }
+      const allowed = memberLevelNames.some((name) => name.toLowerCase() === memberLevelName);
+      if (!allowed) {
+        return res.json({ valid: false, message: 'ระดับสมาชิกของคุณไม่สามารถใช้โค้ดนี้ได้' });
+      }
+    }
+
+    const [flowerRows] = await pool.query(
+      `
+      SELECT pf.flower_id, f.flower_name
+      FROM promotion_flower pf
+      LEFT JOIN flower f ON f.flower_id = pf.flower_id
+      WHERE pf.promotion_id = ?
+      ORDER BY pf.flower_id
+      `,
+      [promotion.promotion_id]
+    );
+    const normalizedFlowerRows = Array.isArray(flowerRows) ? flowerRows : [];
+    const promotionFlowerIds = normalizedFlowerRows
+      .map((row) => Number(row.flower_id))
+      .filter((v) => Number.isInteger(v) && v > 0);
+    const promotionFlowerNames = normalizedFlowerRows
+      .map((row) => String(row.flower_name || '').trim())
+      .filter(Boolean);
+    const isFlowerRestricted = Number(promotion.is_allflower || 0) !== 1 && promotionFlowerIds.length > 0;
+
+    if (isFlowerRestricted) {
+      if (cartFlowerIds.length === 0) {
+        return res.json({ valid: false, message: 'โค้ดนี้ใช้ได้เฉพาะดอกไม้ที่ร่วมรายการเท่านั้น' });
+      }
+
+      const hasMatchingFlower = cartFlowerIds.some((flowerId) => promotionFlowerIds.includes(flowerId));
+      if (!hasMatchingFlower) {
+        return res.json({
+          valid: false,
+          message: 'สินค้าในตะกร้าไม่มีดอกไม้ที่ร่วมรายการของโค้ดนี้',
+        });
+      }
+    }
+
+    const perUserLimit = promotion.per_user_limit === null ? null : Number(promotion.per_user_limit || 0);
+    if (perUserLimit !== null && perUserLimit > 0 && customerPhone) {
+      const [customerRows] = await pool.query(
+        'SELECT customer_id FROM customer WHERE phone = ? LIMIT 1',
+        [customerPhone]
+      );
+      const customerId = Array.isArray(customerRows) ? customerRows[0]?.customer_id : null;
+      if (customerId) {
+        const [customerUsageRows] = await pool.query(
+          'SELECT COUNT(*) AS used_count FROM orders WHERE promotion_id = ? AND customer_id = ?',
+          [promotion.promotion_id, customerId]
+        );
+        const customerUsed = Number((Array.isArray(customerUsageRows) ? customerUsageRows[0]?.used_count : 0) || 0);
+        if (customerUsed >= perUserLimit) {
+          return res.json({ valid: false, message: 'คุณใช้โค้ดนี้ครบสิทธิ์แล้ว' });
+        }
+      }
+    }
+
+    const [branchRows] = await pool.query(
+      `
+      SELECT pb.branch_id, b.branch_name
+      FROM promotion_branch pb
+      LEFT JOIN branch b ON b.branch_id = pb.branch_id
+      WHERE pb.promotion_id = ?
+      ORDER BY pb.branch_id
+      `,
+      [promotion.promotion_id]
+    );
+    const normalizedBranchRows = Array.isArray(branchRows) ? branchRows : [];
+    const branchIds = normalizedBranchRows
+      .map((row) => Number(row.branch_id))
+      .filter((v) => Number.isInteger(v) && v > 0);
+    const branchNames = normalizedBranchRows
+      .map((row) => String(row.branch_name || '').trim())
+      .filter(Boolean);
+
+    const discount = Number(promotion.discount || 0);
+    const maxDiscount = promotion.max_discount === null ? null : Number(promotion.max_discount || 0);
+    let benefitType = 'amount';
+    const description = String(promotion.description || '').toLowerCase();
+    const name = String(promotion.promotion_name || '').toLowerCase();
+    const typeName = String(promotion.promotion_type_name || '').toLowerCase();
+
+    if (discount > 0 && discount <= 100) {
+      benefitType = 'percent';
+    } else if (discount > 100) {
+      benefitType = 'amount';
+    }
+
+    if (
+      description.includes('ฟรี') ||
+      name.includes('ฟรี') ||
+      description.includes('shipping') ||
+      name.includes('shipping') ||
+      typeName.includes('ส่วนลดจัดส่ง')
+    ) {
+      benefitType = 'shipping';
+    }
+
+    if (benefitType === 'shipping' && deliveryType === 'pickup') {
+      return res.json({
+        valid: false,
+        message: 'โค้ดส่วนลดค่าจัดส่งใช้ไม่ได้กับการรับหน้าร้าน (ไม่มีค่าส่ง)',
+      });
+    }
+
+    let discountAmount = 0;
+    if (benefitType === 'amount') {
+      discountAmount = Math.min(discount, subtotal);
+    } else if (benefitType === 'percent') {
+      const percentDiscount = Math.floor((subtotal * discount) / 100);
+      const cappedDiscount = maxDiscount !== null && maxDiscount > 0
+        ? Math.min(percentDiscount, maxDiscount)
+        : percentDiscount;
+      discountAmount = Math.min(cappedDiscount, subtotal);
+    }
+
+    return res.json({
+      valid: true,
+      message: 'ใช้โค้ดโปรโมชั่นสำเร็จ',
+      promotionId: Number(promotion.promotion_id),
+      code: String(promotion.promotion_code || code),
+      label: String(promotion.promotion_name || ''),
+      benefitType,
+      discountAmount,
+      maxDiscount,
+      minSubtotal,
+      usageLimit,
+      usedCount,
+      perUserLimit,
+      memberLevelIds,
+      memberLevelNames,
+      flowerIds: promotionFlowerIds,
+      flowerNames: promotionFlowerNames,
+      isFlowerRestricted,
+      branchIds,
+      branchNames,
+      isBranchRestricted: Number(promotion.is_allbranch || 0) !== 1 && branchIds.length > 0,
+    });
+  } catch (err) {
+    console.error('❌ Promotion Validate API Error:', err.message);
+    return res.status(500).json({
+      valid: false,
+      message: 'เกิดข้อผิดพลาดในการตรวจสอบโค้ดโปรโมชั่น',
+      detail: err.message,
+    });
+  }
+});
+
+// Executive promotion management APIs
+const parseIdArray = (raw) => {
+  if (Array.isArray(raw)) {
+    return raw
+      .map((v) => Number(v))
+      .filter((v) => Number.isInteger(v) && v > 0);
+  }
+
+  if (raw === null || raw === undefined || raw === '') {
+    return [];
+  }
+
+  return String(raw)
+    .split(',')
+    .map((v) => Number(v.trim()))
+    .filter((v) => Number.isInteger(v) && v > 0);
+};
+
+app.get('/api/executive/promotions/options', async (_req, res) => {
+  try {
+    const [promotionTypes, channels, branches] = await Promise.all([
+      pool
+        .query('SELECT promotion_type_id, promotion_type_name FROM promotion_type ORDER BY promotion_type_id')
+        .then(([rows]) => (Array.isArray(rows) ? rows : []))
+        .catch(() => []),
+      pool
+        .query('SELECT channel_id, channel_name FROM channel ORDER BY channel_id')
+        .then(([rows]) => (Array.isArray(rows) ? rows : []))
+        .catch(() => []),
+      pool
+        .query('SELECT branch_id, branch_name FROM branch ORDER BY branch_name')
+        .then(([rows]) => (Array.isArray(rows) ? rows : []))
+        .catch(() => []),
+    ]);
+
+    const flowerNameColumn = await getExistingColumnName('flower', ['flower_name', 'name']);
+    const flowerIdColumn = await getExistingColumnName('flower', ['flower_id']);
+    const flowerRows = flowerIdColumn
+      ? await pool
+          .query(
+            `SELECT \`${flowerIdColumn}\` AS flower_id, ${flowerNameColumn ? `\`${flowerNameColumn}\`` : `CONCAT('ดอกไม้ #', \`${flowerIdColumn}\`)`} AS flower_name FROM flower ORDER BY flower_name`
+          )
+          .then(([rows]) => (Array.isArray(rows) ? rows : []))
+          .catch(() => [])
+      : [];
+
+    const memberRows = await pool
+      .query('SELECT member_level_id, member_level_name FROM member_level ORDER BY member_level_id')
+      .then(([rows]) => (Array.isArray(rows) ? rows : []))
+      .catch(() => []);
+
+    return res.json({
+      promotionTypes: promotionTypes.map((row) => ({
+        promotion_type_id: Number(row.promotion_type_id),
+        promotion_type_name: String(row.promotion_type_name || ''),
+      })),
+      channels: channels.map((row) => ({
+        channel_id: Number(row.channel_id),
+        channel_name: String(row.channel_name || ''),
+      })),
+      branches: branches.map((row) => ({
+        branch_id: Number(row.branch_id),
+        branch_name: String(row.branch_name || ''),
+      })),
+      flowers: flowerRows.map((row) => ({
+        flower_id: Number(row.flower_id),
+        flower_name: String(row.flower_name || ''),
+      })),
+      memberLevels: memberRows.map((row) => ({
+        member_level_id: Number(row.member_level_id),
+        member_level_name: String(row.member_level_name || ''),
+      })),
+    });
+  } catch (err) {
+    console.error('❌ Executive Promotions Options API Error:', err.message);
+    return res.status(500).json({
+      error: 'Failed to load executive promotions options',
+      detail: err.message,
+    });
+  }
+});
+
+app.get('/api/executive/promotions', async (_req, res) => {
+  try {
+    const promotionMemberTable = await getExistingTableName(['promotion_member', 'promotion_member_level']);
+    const memberLevelIdCol = promotionMemberTable
+      ? await getExistingColumnName(promotionMemberTable, ['member_level_id'])
+      : null;
+
+    const [rows] = await pool.query(
+      `
+      SELECT
+        p.promotion_id,
+        p.promotion_type_id,
+        pt.promotion_type_name,
+        p.promotion_code,
+        p.promotion_name,
+        p.description,
+        p.discount,
+        p.max_discount,
+        p.minimum_order_amount,
+        p.usage_limit,
+        p.per_user_limit,
+        p.start_date,
+        p.end_date,
+        p.is_allbranch,
+        p.is_allflower,
+        p.is_active,
+        COUNT(DISTINCT o.order_id) AS total_usage,
+        GROUP_CONCAT(DISTINCT pb.branch_id ORDER BY pb.branch_id) AS branch_ids,
+        GROUP_CONCAT(DISTINCT b.branch_name ORDER BY b.branch_name SEPARATOR '|') AS branch_names,
+        GROUP_CONCAT(DISTINCT pc.channel_id ORDER BY pc.channel_id) AS channel_ids,
+        GROUP_CONCAT(DISTINCT ch.channel_name ORDER BY ch.channel_name SEPARATOR '|') AS channel_names,
+        GROUP_CONCAT(DISTINCT pf.flower_id ORDER BY pf.flower_id) AS flower_ids,
+        GROUP_CONCAT(DISTINCT f.flower_name ORDER BY f.flower_name SEPARATOR '|') AS flower_names,
+        ${promotionMemberTable && memberLevelIdCol ? `GROUP_CONCAT(DISTINCT pm.\`${memberLevelIdCol}\` ORDER BY pm.\`${memberLevelIdCol}\`)` : 'NULL'} AS member_level_ids,
+        ${promotionMemberTable && memberLevelIdCol ? `GROUP_CONCAT(DISTINCT ml.member_level_name ORDER BY ml.member_level_name SEPARATOR '|')` : 'NULL'} AS member_level_names
+      FROM promotion p
+      LEFT JOIN promotion_type pt ON pt.promotion_type_id = p.promotion_type_id
+      LEFT JOIN orders o ON o.promotion_id = p.promotion_id
+      LEFT JOIN promotion_branch pb ON pb.promotion_id = p.promotion_id
+      LEFT JOIN branch b ON b.branch_id = pb.branch_id
+      LEFT JOIN promotion_channel pc ON pc.promotion_id = p.promotion_id
+      LEFT JOIN channel ch ON ch.channel_id = pc.channel_id
+      LEFT JOIN promotion_flower pf ON pf.promotion_id = p.promotion_id
+      LEFT JOIN flower f ON f.flower_id = pf.flower_id
+      ${promotionMemberTable && memberLevelIdCol ? `LEFT JOIN \`${promotionMemberTable}\` pm ON pm.promotion_id = p.promotion_id` : ''}
+      ${promotionMemberTable && memberLevelIdCol ? `LEFT JOIN member_level ml ON ml.member_level_id = pm.\`${memberLevelIdCol}\`` : ''}
+      WHERE COALESCE(p.is_active, 1) = 1
+      GROUP BY p.promotion_id
+      ORDER BY p.start_date DESC, p.promotion_id DESC
+      `
+    );
+
+    const promotions = Array.isArray(rows)
+      ? rows.map((row) => ({
+          id: Number(row.promotion_id),
+          promotionTypeId: row.promotion_type_id ? Number(row.promotion_type_id) : null,
+          promotionTypeName: String(row.promotion_type_name || ''),
+          code: String(row.promotion_code || ''),
+          name: String(row.promotion_name || ''),
+          description: String(row.description || ''),
+          startDate: row.start_date,
+          endDate: row.end_date,
+          minAmount: Number(row.minimum_order_amount || 0),
+          discount: Number(row.discount || 0),
+          maxDiscount: row.max_discount !== null ? Number(row.max_discount) : null,
+          usageLimit: row.usage_limit !== null ? Number(row.usage_limit) : null,
+          perUserLimit: row.per_user_limit !== null ? Number(row.per_user_limit) : null,
+          isAllBranch: Number(row.is_allbranch || 0) === 1,
+          isAllFlower: Number(row.is_allflower || 0) === 1,
+          isActive: Number(row.is_active || 0) === 1,
+          totalUsage: Number(row.total_usage || 0),
+          branchIds: parseIdArray(row.branch_ids),
+          branchNames: row.branch_names ? String(row.branch_names).split('|').filter(Boolean) : [],
+          channelIds: parseIdArray(row.channel_ids),
+          channelNames: row.channel_names ? String(row.channel_names).split('|').filter(Boolean) : [],
+          flowerIds: parseIdArray(row.flower_ids),
+          flowerNames: row.flower_names ? String(row.flower_names).split('|').filter(Boolean) : [],
+          memberLevelIds: parseIdArray(row.member_level_ids),
+          memberLevelNames: row.member_level_names ? String(row.member_level_names).split('|').filter(Boolean) : [],
+        }))
+      : [];
+
+    return res.json(promotions);
+  } catch (err) {
+    console.error('❌ Executive Promotions List API Error:', err.message);
+    return res.status(500).json({
+      error: 'Failed to load executive promotions',
+      detail: err.message,
+    });
+  }
+});
+
+app.post('/api/executive/promotions', async (req, res) => {
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    const payload = req.body || {};
+    const code = String(payload.code || '').trim().toUpperCase();
+    const name = String(payload.name || '').trim();
+    const description = String(payload.description || '').trim();
+    const startDate = payload.startDate || null;
+    const endDate = payload.endDate || null;
+    const minAmount = Number(payload.minAmount || 0);
+    const discount = Number(payload.discount || 0);
+    const maxDiscount = payload.maxDiscount === '' || payload.maxDiscount === null || payload.maxDiscount === undefined
+      ? null
+      : Number(payload.maxDiscount);
+    const usageLimit = payload.usageLimit === '' || payload.usageLimit === null || payload.usageLimit === undefined
+      ? null
+      : Number(payload.usageLimit);
+    const perUserLimit = payload.perUserLimit === '' || payload.perUserLimit === null || payload.perUserLimit === undefined
+      ? null
+      : Number(payload.perUserLimit);
+    const promotionTypeId = Number(payload.promotionTypeId || 0);
+    const isAllBranch = payload.isAllBranch === false ? 0 : 1;
+    const isAllFlower = payload.isAllFlower === false ? 0 : 1;
+    const isActive = payload.isActive === false ? 0 : 1;
+
+    const branchIds = parseIdArray(payload.branchIds);
+    const channelIds = parseIdArray(payload.channelIds);
+    const flowerIds = parseIdArray(payload.flowerIds);
+    const memberLevelIds = parseIdArray(payload.memberLevelIds);
+
+    if (!code || !name) {
+      return res.status(400).json({ error: 'Promotion code and name are required' });
+    }
+    if (!Number.isFinite(promotionTypeId) || promotionTypeId <= 0) {
+      return res.status(400).json({ error: 'promotionTypeId is required' });
+    }
+    if (!Number.isFinite(minAmount) || minAmount < 0) {
+      return res.status(400).json({ error: 'minimum_order_amount must be a non-negative number' });
+    }
+    if (!Number.isFinite(discount) || discount < 0) {
+      return res.status(400).json({ error: 'discount must be a non-negative number' });
+    }
+    if (maxDiscount !== null && (!Number.isFinite(maxDiscount) || maxDiscount < 0)) {
+      return res.status(400).json({ error: 'max_discount must be a non-negative number' });
+    }
+    if (usageLimit !== null && (!Number.isFinite(usageLimit) || usageLimit < 0)) {
+      return res.status(400).json({ error: 'usage_limit must be a non-negative number' });
+    }
+    if (perUserLimit !== null && (!Number.isFinite(perUserLimit) || perUserLimit < 0)) {
+      return res.status(400).json({ error: 'per_user_limit must be a non-negative number' });
+    }
+    if (startDate && endDate && new Date(startDate) > new Date(endDate)) {
+      return res.status(400).json({ error: 'startDate must be earlier than or equal to endDate' });
+    }
+    if (!isAllBranch && branchIds.length === 0) {
+      return res.status(400).json({ error: 'Please select at least one branch when isAllBranch is false' });
+    }
+    if (!isAllFlower && flowerIds.length === 0) {
+      return res.status(400).json({ error: 'Please select at least one flower when isAllFlower is false' });
+    }
+
+    const [existsRows] = await conn.query(
+      'SELECT promotion_id FROM promotion WHERE UPPER(TRIM(promotion_code)) = UPPER(TRIM(?)) LIMIT 1',
+      [code]
+    );
+    if (Array.isArray(existsRows) && existsRows.length > 0) {
+      return res.status(409).json({ error: 'Promotion code already exists' });
+    }
+
+    const [result] = await conn.query(
+      `
+      INSERT INTO promotion
+        (promotion_type_id, promotion_code, promotion_name, description, discount, max_discount, minimum_order_amount, usage_limit, per_user_limit, start_date, end_date, is_allbranch, is_allflower, is_active)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+      [promotionTypeId, code, name, description || null, discount, maxDiscount, minAmount, usageLimit, perUserLimit, startDate, endDate, isAllBranch, isAllFlower, isActive]
+    );
+
+    const promotionId = Number(result.insertId);
+
+    if (!isAllBranch && branchIds.length > 0) {
+      const values = branchIds.map((branchId) => [promotionId, branchId]);
+      await conn.query('INSERT INTO promotion_branch (promotion_id, branch_id) VALUES ?', [values]);
+    }
+
+    if (channelIds.length > 0) {
+      const values = channelIds.map((channelId) => [promotionId, channelId]);
+      await conn.query('INSERT INTO promotion_channel (promotion_id, channel_id) VALUES ?', [values]);
+    }
+
+    if (!isAllFlower && flowerIds.length > 0) {
+      const values = flowerIds.map((flowerId) => [promotionId, flowerId]);
+      await conn.query('INSERT INTO promotion_flower (promotion_id, flower_id) VALUES ?', [values]);
+    }
+
+    const promotionMemberTable = await getExistingTableName(['promotion_member', 'promotion_member_level']);
+    const memberLevelIdCol = promotionMemberTable
+      ? await getExistingColumnName(promotionMemberTable, ['member_level_id'])
+      : null;
+
+    if (promotionMemberTable && memberLevelIdCol && memberLevelIds.length > 0) {
+      const values = memberLevelIds.map((memberLevelId) => [promotionId, memberLevelId]);
+      await conn.query(
+        `INSERT INTO \`${promotionMemberTable}\` (promotion_id, \`${memberLevelIdCol}\`) VALUES ?`,
+        [values]
+      );
+    }
+
+    await conn.commit();
+    return res.status(201).json({
+      message: 'Promotion created',
+      promotion_id: promotionId,
+    });
+  } catch (err) {
+    await conn.rollback();
+    console.error('❌ Executive Promotion Create API Error:', err.message);
+    return res.status(500).json({
+      error: 'Failed to create promotion',
+      detail: err.message,
+    });
+  } finally {
+    conn.release();
+  }
+});
+
+app.put('/api/executive/promotions/:promotionId', async (req, res) => {
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    const promotionId = Number(req.params.promotionId);
+    if (!Number.isInteger(promotionId) || promotionId <= 0) {
+      return res.status(400).json({ error: 'Invalid promotion id' });
+    }
+
+    const payload = req.body || {};
+    const code = String(payload.code || '').trim().toUpperCase();
+    const name = String(payload.name || '').trim();
+    const description = String(payload.description || '').trim();
+    const startDate = payload.startDate || null;
+    const endDate = payload.endDate || null;
+    const minAmount = Number(payload.minAmount || 0);
+    const discount = Number(payload.discount || 0);
+    const maxDiscount = payload.maxDiscount === '' || payload.maxDiscount === null || payload.maxDiscount === undefined
+      ? null
+      : Number(payload.maxDiscount);
+    const usageLimit = payload.usageLimit === '' || payload.usageLimit === null || payload.usageLimit === undefined
+      ? null
+      : Number(payload.usageLimit);
+    const perUserLimit = payload.perUserLimit === '' || payload.perUserLimit === null || payload.perUserLimit === undefined
+      ? null
+      : Number(payload.perUserLimit);
+    const promotionTypeId = Number(payload.promotionTypeId || 0);
+    const isAllBranch = payload.isAllBranch === false ? 0 : 1;
+    const isAllFlower = payload.isAllFlower === false ? 0 : 1;
+    const isActive = payload.isActive === false ? 0 : 1;
+
+    const branchIds = parseIdArray(payload.branchIds);
+    const channelIds = parseIdArray(payload.channelIds);
+    const flowerIds = parseIdArray(payload.flowerIds);
+    const memberLevelIds = parseIdArray(payload.memberLevelIds);
+
+    if (!code || !name) {
+      return res.status(400).json({ error: 'Promotion code and name are required' });
+    }
+    if (!Number.isFinite(promotionTypeId) || promotionTypeId <= 0) {
+      return res.status(400).json({ error: 'promotionTypeId is required' });
+    }
+    if (!Number.isFinite(minAmount) || minAmount < 0) {
+      return res.status(400).json({ error: 'minimum_order_amount must be a non-negative number' });
+    }
+    if (!Number.isFinite(discount) || discount < 0) {
+      return res.status(400).json({ error: 'discount must be a non-negative number' });
+    }
+    if (maxDiscount !== null && (!Number.isFinite(maxDiscount) || maxDiscount < 0)) {
+      return res.status(400).json({ error: 'max_discount must be a non-negative number' });
+    }
+    if (usageLimit !== null && (!Number.isFinite(usageLimit) || usageLimit < 0)) {
+      return res.status(400).json({ error: 'usage_limit must be a non-negative number' });
+    }
+    if (perUserLimit !== null && (!Number.isFinite(perUserLimit) || perUserLimit < 0)) {
+      return res.status(400).json({ error: 'per_user_limit must be a non-negative number' });
+    }
+    if (startDate && endDate && new Date(startDate) > new Date(endDate)) {
+      return res.status(400).json({ error: 'startDate must be earlier than or equal to endDate' });
+    }
+    if (!isAllBranch && branchIds.length === 0) {
+      return res.status(400).json({ error: 'Please select at least one branch when isAllBranch is false' });
+    }
+    if (!isAllFlower && flowerIds.length === 0) {
+      return res.status(400).json({ error: 'Please select at least one flower when isAllFlower is false' });
+    }
+
+    const [existsRows] = await conn.query(
+      'SELECT promotion_id FROM promotion WHERE UPPER(TRIM(promotion_code)) = UPPER(TRIM(?)) AND promotion_id <> ? LIMIT 1',
+      [code, promotionId]
+    );
+    if (Array.isArray(existsRows) && existsRows.length > 0) {
+      return res.status(409).json({ error: 'Promotion code already exists' });
+    }
+
+    const [result] = await conn.query(
+      `
+      UPDATE promotion
+      SET
+        promotion_type_id = ?,
+        promotion_code = ?,
+        promotion_name = ?,
+        description = ?,
+        discount = ?,
+        max_discount = ?,
+        minimum_order_amount = ?,
+        usage_limit = ?,
+        per_user_limit = ?,
+        start_date = ?,
+        end_date = ?,
+        is_allbranch = ?,
+        is_allflower = ?,
+        is_active = ?
+      WHERE promotion_id = ?
+      `,
+      [promotionTypeId, code, name, description || null, discount, maxDiscount, minAmount, usageLimit, perUserLimit, startDate, endDate, isAllBranch, isAllFlower, isActive, promotionId]
+    );
+
+    if (!result.affectedRows) {
+      return res.status(404).json({ error: 'Promotion not found' });
+    }
+
+    await conn.query('DELETE FROM promotion_branch WHERE promotion_id = ?', [promotionId]);
+    await conn.query('DELETE FROM promotion_channel WHERE promotion_id = ?', [promotionId]);
+    await conn.query('DELETE FROM promotion_flower WHERE promotion_id = ?', [promotionId]);
+
+    const promotionMemberTable = await getExistingTableName(['promotion_member', 'promotion_member_level']);
+    const memberLevelIdCol = promotionMemberTable
+      ? await getExistingColumnName(promotionMemberTable, ['member_level_id'])
+      : null;
+    if (promotionMemberTable) {
+      await conn.query(`DELETE FROM \`${promotionMemberTable}\` WHERE promotion_id = ?`, [promotionId]);
+    }
+
+    if (!isAllBranch && branchIds.length > 0) {
+      const values = branchIds.map((branchId) => [promotionId, branchId]);
+      await conn.query('INSERT INTO promotion_branch (promotion_id, branch_id) VALUES ?', [values]);
+    }
+
+    if (channelIds.length > 0) {
+      const values = channelIds.map((channelId) => [promotionId, channelId]);
+      await conn.query('INSERT INTO promotion_channel (promotion_id, channel_id) VALUES ?', [values]);
+    }
+
+    if (!isAllFlower && flowerIds.length > 0) {
+      const values = flowerIds.map((flowerId) => [promotionId, flowerId]);
+      await conn.query('INSERT INTO promotion_flower (promotion_id, flower_id) VALUES ?', [values]);
+    }
+
+    if (promotionMemberTable && memberLevelIdCol && memberLevelIds.length > 0) {
+      const values = memberLevelIds.map((memberLevelId) => [promotionId, memberLevelId]);
+      await conn.query(
+        `INSERT INTO \`${promotionMemberTable}\` (promotion_id, \`${memberLevelIdCol}\`) VALUES ?`,
+        [values]
+      );
+    }
+
+    await conn.commit();
+    return res.json({ message: 'Promotion updated' });
+  } catch (err) {
+    await conn.rollback();
+    console.error('❌ Executive Promotion Update API Error:', err.message);
+    return res.status(500).json({
+      error: 'Failed to update promotion',
+      detail: err.message,
+    });
+  } finally {
+    conn.release();
+  }
+});
+
+app.delete('/api/executive/promotions/:promotionId', async (req, res) => {
+  try {
+    const promotionId = Number(req.params.promotionId);
+    if (!Number.isInteger(promotionId) || promotionId <= 0) {
+      return res.status(400).json({ error: 'Invalid promotion id' });
+    }
+
+    const [existsRows] = await pool.query(
+      'SELECT promotion_id, is_active FROM promotion WHERE promotion_id = ? LIMIT 1',
+      [promotionId]
+    );
+
+    if (!Array.isArray(existsRows) || existsRows.length === 0) {
+      return res.status(404).json({ error: 'Promotion not found' });
+    }
+
+    if (Number(existsRows[0].is_active || 0) !== 1) {
+      return res.json({ message: 'Promotion already deleted' });
+    }
+
+    // Soft delete to keep order history references valid.
+    const [result] = await pool.query(
+      'UPDATE promotion SET is_active = 0 WHERE promotion_id = ?',
+      [promotionId]
+    );
+
+    if (!result.affectedRows) {
+      return res.status(500).json({ error: 'Failed to delete promotion' });
+    }
+
+    return res.json({ message: 'Promotion deleted' });
+  } catch (err) {
+    console.error('❌ Executive Promotion Delete API Error:', err.message);
+    return res.status(500).json({
+      error: 'Failed to delete promotion',
+      detail: err.message,
     });
   }
 });
@@ -1321,6 +3059,20 @@ app.post('/api/orders', async (req, res) => {
       const [brows] = await conn.query('SELECT branch_id FROM branch WHERE branch_name = ? LIMIT 1', [payload.branch]);
       if (brows.length) branchId = brows[0].branch_id;
     }
+
+    if (!sanitizePositiveInt(branchId)) {
+      throw new Error('กรุณาเลือกสาขาก่อนชำระเงิน');
+    }
+
+    const stockRequirements = await resolveOrderStockRequirements(conn, payload.items || []);
+    const stockCheck = await getStockAvailabilityForRequirements(conn, branchId, stockRequirements, { forUpdate: true });
+    if (!stockCheck.isAvailable) {
+      const detail = stockCheck.insufficient
+        .map((item) => `${item.label} (ต้องการ ${item.requiredQty}, คงเหลือ ${item.availableQty})`)
+        .join(', ');
+      throw new Error(`สต๊อกสินค้าไม่เพียงพอในสาขาที่เลือก: ${detail}`);
+    }
+    await applyStockDeductions(conn, branchId, stockCheck.entries);
 
     const resolvePromotionId = async () => {
       const directPromotionId = Number(payload.promotion_id);
@@ -1896,11 +3648,109 @@ app.get('/api/manager/branch-employees/:branchId', async (req, res) => {
   }
 });
 
+// Employee performance metrics for branch manager outstanding cards
+app.get('/api/manager/employee-performance/:branchId', async (req, res) => {
+  try {
+    const branchId = Number(req.params.branchId);
+    const month = String(req.query.month || '').trim();
+    if (Number.isNaN(branchId) || branchId <= 0) {
+      return res.status(400).json({ error: 'Invalid branch ID' });
+    }
+
+    const monthFilterSql = /^\d{4}-\d{2}$/.test(month)
+      ? " AND DATE_FORMAT(o.created_at, '%Y-%m') = ?"
+      : '';
+    const monthParams = monthFilterSql ? [month] : [];
+
+    const [rows] = await pool.query(
+      `
+      SELECT
+        e.employee_id,
+        COALESCE(e.average_rating, 0) AS average_rating,
+        COALESCE(cashier.orders_count, 0) AS cashier_orders,
+        COALESCE(florist.orders_count, 0) AS florist_orders,
+        COALESCE(florist.avg_minutes, 0) AS florist_avg_minutes,
+        COALESCE(rider.orders_count, 0) AS rider_orders,
+        COALESCE(rider.avg_minutes, 0) AS rider_avg_minutes
+      FROM employee e
+      LEFT JOIN (
+        SELECT
+          p.employee_id,
+          COUNT(DISTINCT p.order_id) AS orders_count
+        FROM payment p
+        JOIN orders o ON o.order_id = p.order_id
+        WHERE o.branch_id = ? AND p.employee_id IS NOT NULL${monthFilterSql}
+        GROUP BY p.employee_id
+      ) cashier ON cashier.employee_id = e.employee_id
+      LEFT JOIN (
+        SELECT
+          p.employee_id,
+          COUNT(DISTINCT p.order_id) AS orders_count,
+          AVG(
+            CASE
+              WHEN p.assigned_at IS NOT NULL AND p.completed_at IS NOT NULL
+                THEN TIMESTAMPDIFF(MINUTE, p.assigned_at, p.completed_at)
+              ELSE NULL
+            END
+          ) AS avg_minutes
+        FROM prepare p
+        JOIN orders o ON o.order_id = p.order_id
+        WHERE o.branch_id = ? AND p.employee_id IS NOT NULL${monthFilterSql}
+        GROUP BY p.employee_id
+      ) florist ON florist.employee_id = e.employee_id
+      LEFT JOIN (
+        SELECT
+          d.employee_id,
+          COUNT(DISTINCT d.order_id) AS orders_count,
+          AVG(
+            CASE
+              WHEN d.assigned_at IS NOT NULL AND d.completed_at IS NOT NULL
+                THEN TIMESTAMPDIFF(MINUTE, d.assigned_at, d.completed_at)
+              ELSE NULL
+            END
+          ) AS avg_minutes
+        FROM delivery d
+        JOIN orders o ON o.order_id = d.order_id
+        WHERE o.branch_id = ? AND d.employee_id IS NOT NULL${monthFilterSql}
+        GROUP BY d.employee_id
+      ) rider ON rider.employee_id = e.employee_id
+      WHERE e.branch_id = ?
+      `,
+      [
+        branchId,
+        ...monthParams,
+        branchId,
+        ...monthParams,
+        branchId,
+        ...monthParams,
+        branchId,
+      ]
+    );
+
+    return res.json(
+      Array.isArray(rows)
+        ? rows.map((row) => ({
+            employee_id: Number(row.employee_id || 0),
+            average_rating: Number(row.average_rating || 0),
+            cashier_orders: Number(row.cashier_orders || 0),
+            florist_orders: Number(row.florist_orders || 0),
+            florist_avg_minutes: Number(row.florist_avg_minutes || 0),
+            rider_orders: Number(row.rider_orders || 0),
+            rider_avg_minutes: Number(row.rider_avg_minutes || 0),
+          }))
+        : []
+    );
+  } catch (err) {
+    console.error('❌ Employee performance error:', err.message);
+    return res.status(500).json({ error: 'Server error', detail: err.message });
+  }
+});
+
 // Manager Dashboard Stats endpoint
 app.get('/api/manager/dashboard-stats/:branchId', async (req, res) => {
   try {
     const { branchId } = req.params;
-    const { date_range, product_type_id } = req.query || {};
+    const { date_range, product_type_id, member_level } = req.query || {};
     const params = [Number(branchId)];
     const ordersTable = 'orders';
 
@@ -1934,39 +3784,76 @@ app.get('/api/manager/dashboard-stats/:branchId', async (req, res) => {
       }
     }
 
+    // Build member level filter condition
+    let memberLevelCondition = '';
+    const memberLevelParams = [];
+    const memberLevelRaw = String(member_level || '').trim();
+    if (memberLevelRaw && memberLevelRaw.toLowerCase() !== 'all') {
+      const normalizedMemberLevel = memberLevelRaw.toLowerCase();
+      const levelIdMap = {
+        member: 1,
+        silver: 2,
+        gold: 3,
+        platinum: 4,
+      };
+      const mappedId = levelIdMap[normalizedMemberLevel];
+      if (Number.isFinite(mappedId)) {
+        memberLevelCondition = ' AND c.member_level_id = ?';
+        memberLevelParams.push(mappedId);
+      } else if (/^\d+$/.test(memberLevelRaw)) {
+        memberLevelCondition = ' AND c.member_level_id = ?';
+        memberLevelParams.push(Number(memberLevelRaw));
+      } else {
+        memberLevelCondition = ' AND LOWER(COALESCE(ml.member_level_name, "")) = ?';
+        memberLevelParams.push(normalizedMemberLevel);
+      }
+    }
+
     // Total revenue with date and product type filter
     const revenueSql = `
       SELECT IFNULL(SUM(total_amount), 0) AS total_revenue
       FROM ${ordersTable} o
-      WHERE o.branch_id = ?${dateCondition}${productTypeCondition}
+      JOIN customer c ON c.customer_id = o.customer_id
+      LEFT JOIN member_level ml ON ml.member_level_id = c.member_level_id
+      WHERE o.branch_id = ?${dateCondition}${productTypeCondition}${memberLevelCondition}
     `;
-    const revenueParams = [...params, ...dateParams, ...productTypeParams];
+    const revenueParams = [...params, ...dateParams, ...productTypeParams, ...memberLevelParams];
     const [[revenueRow]] = await pool.query(revenueSql, revenueParams);
 
     // Order count with date and product type filter
     const orderCountSql = `
       SELECT COUNT(*) AS total_orders
       FROM ${ordersTable} o
-      WHERE o.branch_id = ?${dateCondition}${productTypeCondition}
+      JOIN customer c ON c.customer_id = o.customer_id
+      LEFT JOIN member_level ml ON ml.member_level_id = c.member_level_id
+      WHERE o.branch_id = ?${dateCondition}${productTypeCondition}${memberLevelCondition}
     `;
-    const orderCountParams = [...params, ...dateParams, ...productTypeParams];
+    const orderCountParams = [...params, ...dateParams, ...productTypeParams, ...memberLevelParams];
     const [[orderCountRow]] = await pool.query(orderCountSql, orderCountParams);
 
     // Orders in progress (order_status IN 'received', 'preparing', 'shipping') with date and product type filter
     const inProgressSql = `
       SELECT COUNT(*) AS in_progress_orders
       FROM ${ordersTable} o
-      WHERE o.branch_id = ?${dateCondition} AND o.order_status IN ('received', 'preparing', 'shipping')${productTypeCondition}
+      JOIN customer c ON c.customer_id = o.customer_id
+      LEFT JOIN member_level ml ON ml.member_level_id = c.member_level_id
+      WHERE o.branch_id = ?${dateCondition} AND o.order_status IN ('received', 'preparing', 'shipping')${productTypeCondition}${memberLevelCondition}
     `;
-    const inProgressParams = [...params, ...dateParams, ...productTypeParams];
+    const inProgressParams = [...params, ...dateParams, ...productTypeParams, ...memberLevelParams];
     const [[inProgressRow]] = await pool.query(inProgressSql, inProgressParams);
 
-    // Available products (total count of products)
+    // Available products (distinct products sold under current filters)
     const availableProductsSql = `
-      SELECT COUNT(DISTINCT p.product_id) AS available_products
-      FROM product p
+      SELECT COUNT(DISTINCT pr.product_id) AS available_products
+      FROM ${ordersTable} o
+      JOIN customer c ON c.customer_id = o.customer_id
+      LEFT JOIN member_level ml ON ml.member_level_id = c.member_level_id
+      JOIN shopping_cart sc ON sc.order_id = o.order_id
+      JOIN product pr ON pr.product_id = sc.product_id
+      WHERE o.branch_id = ?${dateCondition}${productTypeCondition}${memberLevelCondition}
     `;
-    const [[availableProductsRow]] = await pool.query(availableProductsSql);
+    const availableProductsParams = [...params, ...dateParams, ...productTypeParams, ...memberLevelParams];
+    const [[availableProductsRow]] = await pool.query(availableProductsSql, availableProductsParams);
 
     return res.json({
       total_revenue: Number(revenueRow.total_revenue) || 0,
@@ -2781,9 +4668,594 @@ app.post('/api/executive/login', async (req, res) => {
   }
 });
 
+app.get('/api/executive/customers-analytics', async (_req, res) => {
+  try {
+    const ordersTable = (await getExistingTableName(['orders', 'order'])) || 'orders';
+    const genderTable = await getExistingTableName(['gender']);
+    const memberLevelTable = await getExistingTableName(['member_level']);
+
+    const customerNameCol = await getExistingColumnName('customer', ['customer_name', 'name']);
+    const customerSurnameCol = await getExistingColumnName('customer', ['customer_surname', 'surname', 'last_name']);
+    const customerPhoneCol = await getExistingColumnName('customer', ['phone', 'customer_phone', 'mobile']);
+    const customerDobCol = await getExistingColumnName('customer', ['date_of_birth']);
+    const customerGenderIdCol = await getExistingColumnName('customer', ['gender_id']);
+    const customerMemberLevelIdCol = await getExistingColumnName('customer', ['member_level_id']);
+    const customerPointCol = await getExistingColumnName('customer', ['total_point', 'points']);
+
+    const genderNameCol = genderTable ? await getExistingColumnName(genderTable, ['gender_name', 'name']) : null;
+    const memberLevelNameCol = memberLevelTable
+      ? await getExistingColumnName(memberLevelTable, ['member_level_name', 'level_name', 'name'])
+      : null;
+
+    const selectNameSql = customerNameCol ? `c.\`${customerNameCol}\`` : "'-'";
+    const selectSurnameSql = customerSurnameCol ? `c.\`${customerSurnameCol}\`` : "'-'";
+    const selectPhoneSql = customerPhoneCol ? `c.\`${customerPhoneCol}\`` : "''";
+    const selectDobSql = customerDobCol ? `c.\`${customerDobCol}\`` : 'NULL';
+    const selectPointsSql = customerPointCol ? `c.\`${customerPointCol}\`` : '0';
+
+    const genderJoinSql = genderTable && customerGenderIdCol
+      ? `LEFT JOIN \`${genderTable}\` g ON g.gender_id = c.\`${customerGenderIdCol}\``
+      : '';
+    const genderSelectSql = genderTable && genderNameCol ? `g.\`${genderNameCol}\`` : 'NULL';
+
+    const memberJoinSql = memberLevelTable && customerMemberLevelIdCol
+      ? `LEFT JOIN \`${memberLevelTable}\` ml ON ml.member_level_id = c.\`${customerMemberLevelIdCol}\``
+      : '';
+    const memberSelectSql = memberLevelTable && memberLevelNameCol ? `ml.\`${memberLevelNameCol}\`` : 'NULL';
+
+    const selectMemberLevelIdSql = customerMemberLevelIdCol ? `c.\`${customerMemberLevelIdCol}\`` : 'NULL';
+
+    const [rows] = await pool.query(
+      `
+      SELECT
+        c.customer_id,
+        ${selectNameSql} AS first_name,
+        ${selectSurnameSql} AS last_name,
+        ${selectPhoneSql} AS phone,
+        ${selectDobSql} AS birth_date,
+        ${selectPointsSql} AS total_points,
+        ${selectMemberLevelIdSql} AS member_level_id,
+        ${genderSelectSql} AS gender_name,
+        ${memberSelectSql} AS member_level_name,
+        b.branch_name,
+        o.created_at AS order_datetime,
+        o.total_amount
+      FROM customer c
+      LEFT JOIN \`${ordersTable}\` o ON o.customer_id = c.customer_id
+      LEFT JOIN branch b ON b.branch_id = o.branch_id
+      ${genderJoinSql}
+      ${memberJoinSql}
+      ORDER BY c.customer_id ASC, o.created_at ASC
+      `
+    );
+
+    const mapGender = (value) => {
+      const text = String(value || '').trim().toLowerCase();
+      if (text.includes('male') || text.includes('ชาย')) return 'ชาย';
+      if (text.includes('female') || text.includes('หญิง')) return 'หญิง';
+      return 'ไม่ระบุ';
+    };
+
+    const mapMemberLevel = (name, levelId) => {
+      const text = String(name || '').trim().toLowerCase();
+      if (text) return String(name).trim();
+      const id = Number(levelId || 0);
+      return id > 0 ? `ระดับ ${id}` : '-';
+    };
+
+    const toDateTimeParts = (value) => {
+      const dateObj = new Date(value);
+      if (!Number.isFinite(dateObj.getTime())) return null;
+      const y = dateObj.getFullYear();
+      const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+      const d = String(dateObj.getDate()).padStart(2, '0');
+      const hh = String(dateObj.getHours()).padStart(2, '0');
+      const mm = String(dateObj.getMinutes()).padStart(2, '0');
+      return { date: `${y}-${m}-${d}`, time: `${hh}:${mm}` };
+    };
+
+    const toDateOnly = (value) => {
+      if (!value) return null;
+      if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+      const dateObj = new Date(value);
+      if (!Number.isFinite(dateObj.getTime())) return null;
+      const y = dateObj.getFullYear();
+      const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+      const d = String(dateObj.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    };
+
+    const customerMap = new Map();
+    for (const row of rows || []) {
+      const customerId = Number(row.customer_id || 0);
+      if (customerId <= 0) continue;
+
+      if (!customerMap.has(customerId)) {
+        customerMap.set(customerId, {
+          id: `CUS-${String(customerId).padStart(3, '0')}`,
+          branch: row.branch_name || '-',
+          phone: row.phone || '-',
+          firstName: row.first_name || '-',
+          lastName: row.last_name || '-',
+          gender: mapGender(row.gender_name),
+          birthDate: toDateOnly(row.birth_date),
+          memberLevel: mapMemberLevel(row.member_level_name, row.member_level_id),
+          purchases: [],
+        });
+      }
+
+      const customer = customerMap.get(customerId);
+      if (row.branch_name) {
+        customer.branch = row.branch_name;
+      }
+
+      const amount = Number(row.total_amount || 0);
+      if (row.order_datetime && Number.isFinite(amount) && amount > 0) {
+        const parts = toDateTimeParts(row.order_datetime);
+        if (parts) {
+          customer.purchases.push({
+            date: parts.date,
+            time: parts.time,
+            branch: row.branch_name || '-',
+            amount,
+          });
+        }
+      }
+    }
+
+    return res.json(Array.from(customerMap.values()));
+  } catch (err) {
+    console.error('❌ Executive customers analytics error:', err.message);
+    return res.status(500).json({ error: 'Server error', detail: err.message });
+  }
+});
+
+app.get('/api/executive/member-levels', async (_req, res) => {
+  try {
+    const memberLevelTable = await getExistingTableName(['member_level']);
+    if (!memberLevelTable) {
+      return res.json([]);
+    }
+
+    const idCol = await getExistingColumnName(memberLevelTable, ['member_level_id', 'id']);
+    const nameCol = await getExistingColumnName(memberLevelTable, ['member_level_name', 'level_name', 'name']);
+    if (!nameCol) {
+      return res.json([]);
+    }
+
+    const [rows] = await pool.query(
+      `SELECT ${idCol ? `\`${idCol}\` AS member_level_id,` : ''} \`${nameCol}\` AS member_level_name FROM \`${memberLevelTable}\` ORDER BY ${idCol ? `\`${idCol}\`` : `\`${nameCol}\``}`
+    );
+
+    return res.json(
+      Array.isArray(rows)
+        ? rows
+            .map((row) => ({
+              member_level_id: row.member_level_id ? Number(row.member_level_id) : null,
+              member_level_name: String(row.member_level_name || '').trim(),
+            }))
+            .filter((row) => row.member_level_name)
+        : []
+    );
+  } catch (err) {
+    console.error('❌ Executive member levels error:', err.message);
+    return res.status(500).json({ error: 'Server error', detail: err.message });
+  }
+});
+
+const parseExecutiveUserKey = (rawKey) => {
+  const key = String(rawKey || '');
+  const [scope, rawId] = key.split(':');
+  const id = Number(rawId);
+  if (!scope || Number.isNaN(id) || id <= 0) return null;
+  if (scope !== 'employee' && scope !== 'executive') return null;
+  return { scope, id };
+};
+
+app.get('/api/executive/users', async (_req, res) => {
+  try {
+    const roleTable = await getExistingTableName(['employee_role', 'role', 'roles']);
+    const roleIdColumn = roleTable ? await getExistingColumnName(roleTable, ['role_id', 'id']) : null;
+    const roleNameColumn = roleTable ? await getExistingColumnName(roleTable, ['role_name', 'name']) : null;
+    const phoneColumn = await getExistingColumnName('employee', ['phone', 'phone_number', 'mobile', 'tel']);
+    const salaryColumn = await getExistingColumnName('employee', ['salary', 'base_salary', 'monthly_salary']);
+    const createdAtColumn = await getExistingColumnName('employee', ['created_at', 'createdAt', 'join_date', 'hired_at']);
+    const profileUrlColumn = await getExistingColumnName('employee', ['employee_profile_url', 'profile_url', 'profile_image_url']);
+    const ratingColumn = await getExistingColumnName('employee', ['average_rating', 'rating']);
+
+    const roleJoinSql = roleTable && roleIdColumn ? `LEFT JOIN \`${roleTable}\` r ON r.\`${roleIdColumn}\` = e.role_id` : '';
+    const roleNameSelectSql = roleNameColumn ? `r.\`${roleNameColumn}\`` : 'NULL';
+    const phoneSelectSql = phoneColumn ? `e.\`${phoneColumn}\`` : 'NULL';
+    const salarySelectSql = salaryColumn ? `e.\`${salaryColumn}\`` : '0';
+    const createdAtSelectSql = createdAtColumn ? `e.\`${createdAtColumn}\`` : 'NULL';
+    const profileUrlSelectSql = profileUrlColumn ? `e.\`${profileUrlColumn}\`` : 'NULL';
+    const ratingSelectSql = ratingColumn ? `e.\`${ratingColumn}\`` : '0';
+
+    const employeeSql = `
+      SELECT
+        e.employee_id AS id,
+        'employee' AS scope,
+        e.username,
+        e.name,
+        e.surname,
+        ${phoneSelectSql} AS phone,
+        e.branch_id,
+        b.branch_name,
+        e.role_id,
+        ${roleNameSelectSql} AS role_name,
+        ${salarySelectSql} AS salary,
+        ${ratingSelectSql} AS rating,
+        ${profileUrlSelectSql} AS profile_image,
+        ${createdAtSelectSql} AS created_at
+      FROM employee e
+      LEFT JOIN branch b ON b.branch_id = e.branch_id
+      ${roleJoinSql}
+      ORDER BY e.employee_id DESC
+    `;
+
+    const executivePhoneColumn = await getExistingColumnName('executive', ['phone', 'phone_number', 'mobile', 'tel']);
+    const executiveCreatedAtColumn = await getExistingColumnName('executive', ['created_at', 'createdAt']);
+    const executivePhoneSelectSql = executivePhoneColumn ? `ex.\`${executivePhoneColumn}\`` : 'NULL';
+    const executiveCreatedAtSelectSql = executiveCreatedAtColumn ? `ex.\`${executiveCreatedAtColumn}\`` : 'NULL';
+
+    const executiveSql = `
+      SELECT
+        ex.executive_id AS id,
+        'executive' AS scope,
+        ex.username,
+        ex.name,
+        ex.surname,
+        ${executivePhoneSelectSql} AS phone,
+        NULL AS branch_id,
+        'ทุกสาขา' AS branch_name,
+        NULL AS role_id,
+        'executive' AS role_name,
+        0 AS salary,
+        5 AS rating,
+        NULL AS profile_image,
+        ${executiveCreatedAtSelectSql} AS created_at
+      FROM executive ex
+      ORDER BY ex.executive_id DESC
+    `;
+
+    const normalizeRoleKey = (roleName, roleId, scope) => {
+      if (scope === 'executive') return 'executive';
+      const text = String(roleName || '').trim().toLowerCase();
+      if (text === 'cashier' || text.includes('แคชเชียร์')) return 'cashier';
+      if (text === 'florist' || text.includes('ช่างจัดดอกไม้') || text.includes('จัดดอกไม้')) return 'florist';
+      if (text === 'rider' || text.includes('ไรเดอร์') || text.includes('ขนส่ง') || text.includes('ส่งของ')) return 'rider';
+      if (text === 'manager' || text.includes('ผู้จัดการ')) return 'manager';
+      if (text === 'executive' || text.includes('ผู้บริหาร')) return 'executive';
+
+      const id = Number(roleId);
+      if (!Number.isNaN(id)) {
+        if (id === 1) return 'manager';
+        if (id === 2) return 'cashier';
+        if (id === 3) return 'florist';
+        if (id === 4) return 'rider';
+      }
+      return 'unknown';
+    };
+
+    const [employeeRows] = await pool.query(employeeSql);
+    const [executiveRows] = await pool.query(executiveSql);
+    const rows = [...(employeeRows || []), ...(executiveRows || [])];
+
+    return res.json(rows.map((row) => ({
+      id: `${row.scope}:${row.id}`,
+      raw_id: Number(row.id),
+      scope: row.scope,
+      username: row.username,
+      first_name: row.name || '',
+      last_name: row.surname || '',
+      phone: row.phone || '',
+      branch_id: row.branch_id ? Number(row.branch_id) : null,
+      branch_name: row.branch_name || 'ทุกสาขา',
+      role_id: row.role_id ? Number(row.role_id) : null,
+      role_name: String(row.role_name || '').toLowerCase(),
+      role_key: normalizeRoleKey(row.role_name, row.role_id, row.scope),
+      salary: Number(row.salary || 0),
+      rating: Number(row.rating || 0),
+      assigned_jobs: 0,
+      profile_image: row.profile_image || null,
+      created_at: row.created_at || null,
+    })));
+  } catch (err) {
+    console.error('❌ Executive users list error:', err.message);
+    return res.status(500).json({ error: 'Server error', detail: err.message });
+  }
+});
+
+app.get('/api/executive/employee-performance', async (req, res) => {
+  try {
+    const month = String(req.query.month || '').trim();
+    const ordersTable = (await getExistingTableName(['orders', 'order'])) || 'orders';
+    const ratingColumn = await getExistingColumnName('employee', ['average_rating', 'rating']);
+    const ratingSelectSql = ratingColumn ? `COALESCE(e.\`${ratingColumn}\`, 0)` : '0';
+
+    const monthFilterSql = /^\d{4}-\d{2}$/.test(month)
+      ? " AND DATE_FORMAT(o.created_at, '%Y-%m') = ?"
+      : '';
+    const monthParams = monthFilterSql ? [month] : [];
+
+    const [rows] = await pool.query(
+      `
+      SELECT
+        e.employee_id,
+        ${ratingSelectSql} AS average_rating,
+        COALESCE(cashier.orders_count, 0) AS cashier_orders,
+        COALESCE(florist.orders_count, 0) AS florist_orders,
+        COALESCE(florist.avg_minutes, 0) AS florist_avg_minutes,
+        COALESCE(rider.orders_count, 0) AS rider_orders,
+        COALESCE(rider.avg_minutes, 0) AS rider_avg_minutes
+      FROM employee e
+      LEFT JOIN (
+        SELECT
+          p.employee_id,
+          COUNT(DISTINCT p.order_id) AS orders_count
+        FROM payment p
+        JOIN \`${ordersTable}\` o ON o.order_id = p.order_id
+        WHERE p.employee_id IS NOT NULL${monthFilterSql}
+        GROUP BY p.employee_id
+      ) cashier ON cashier.employee_id = e.employee_id
+      LEFT JOIN (
+        SELECT
+          p.employee_id,
+          COUNT(DISTINCT p.order_id) AS orders_count,
+          AVG(
+            CASE
+              WHEN p.assigned_at IS NOT NULL AND p.completed_at IS NOT NULL
+                THEN TIMESTAMPDIFF(MINUTE, p.assigned_at, p.completed_at)
+              ELSE NULL
+            END
+          ) AS avg_minutes
+        FROM prepare p
+        JOIN \`${ordersTable}\` o ON o.order_id = p.order_id
+        WHERE p.employee_id IS NOT NULL${monthFilterSql}
+        GROUP BY p.employee_id
+      ) florist ON florist.employee_id = e.employee_id
+      LEFT JOIN (
+        SELECT
+          d.employee_id,
+          COUNT(DISTINCT d.order_id) AS orders_count,
+          AVG(
+            CASE
+              WHEN d.assigned_at IS NOT NULL AND d.completed_at IS NOT NULL
+                THEN TIMESTAMPDIFF(MINUTE, d.assigned_at, d.completed_at)
+              ELSE NULL
+            END
+          ) AS avg_minutes
+        FROM delivery d
+        JOIN \`${ordersTable}\` o ON o.order_id = d.order_id
+        WHERE d.employee_id IS NOT NULL${monthFilterSql}
+        GROUP BY d.employee_id
+      ) rider ON rider.employee_id = e.employee_id
+      `,
+      [
+        ...monthParams,
+        ...monthParams,
+        ...monthParams,
+      ]
+    );
+
+    return res.json(
+      Array.isArray(rows)
+        ? rows.map((row) => ({
+            employee_id: Number(row.employee_id || 0),
+            average_rating: Number(row.average_rating || 0),
+            cashier_orders: Number(row.cashier_orders || 0),
+            florist_orders: Number(row.florist_orders || 0),
+            florist_avg_minutes: Number(row.florist_avg_minutes || 0),
+            rider_orders: Number(row.rider_orders || 0),
+            rider_avg_minutes: Number(row.rider_avg_minutes || 0),
+          }))
+        : []
+    );
+  } catch (err) {
+    console.error('❌ Executive employee performance error:', err.message);
+    return res.status(500).json({ error: 'Server error', detail: err.message });
+  }
+});
+
+app.post('/api/executive/users', async (req, res) => {
+  try {
+    const {
+      username,
+      password,
+      first_name,
+      last_name,
+      phone,
+      role,
+      branch_id,
+      salary,
+    } = req.body || {};
+
+    if (!username || !password || !first_name || !role) {
+      return res.status(400).json({ error: 'username, password, first_name and role are required' });
+    }
+
+    if (String(role).toLowerCase() === 'executive') {
+      await pool.query(
+        'INSERT INTO executive (username, password_hash, name, surname, phone) VALUES (?, ?, ?, ?, ?)',
+        [String(username), String(password), String(first_name), last_name ? String(last_name) : null, phone ? String(phone) : null]
+      );
+      return res.json({ success: true });
+    }
+
+    const roleTable = await getExistingTableName(['employee_role', 'role', 'roles']);
+    if (!roleTable) {
+      return res.status(500).json({ error: 'Role table not found' });
+    }
+
+    const roleNameColumn = await getExistingColumnName(roleTable, ['role_name', 'name']);
+    const roleIdColumn = await getExistingColumnName(roleTable, ['role_id', 'id']);
+    if (!roleNameColumn || !roleIdColumn) {
+      return res.status(500).json({ error: 'Role table columns not found' });
+    }
+
+    const [roleRows] = await pool.query(
+      `SELECT \`${roleIdColumn}\` AS role_id FROM \`${roleTable}\` WHERE LOWER(\`${roleNameColumn}\`) = LOWER(?) LIMIT 1`,
+      [String(role)]
+    );
+    if (!Array.isArray(roleRows) || roleRows.length === 0) {
+      return res.status(400).json({ error: 'Invalid role' });
+    }
+
+    const phoneColumn = await getExistingColumnName('employee', ['phone', 'phone_number', 'mobile', 'tel']);
+    const salaryColumn = await getExistingColumnName('employee', ['salary', 'base_salary', 'monthly_salary']);
+
+    const columns = ['username', 'password_hash', 'role_id', 'branch_id', 'name', 'surname'];
+    const values = [
+      String(username),
+      String(password),
+      Number(roleRows[0].role_id),
+      branch_id ? Number(branch_id) : null,
+      String(first_name),
+      last_name ? String(last_name) : null,
+    ];
+
+    if (phoneColumn) {
+      columns.push(phoneColumn);
+      values.push(phone ? String(phone) : null);
+    }
+    if (salaryColumn) {
+      columns.push(salaryColumn);
+      values.push(Number(salary || 0));
+    }
+
+    await pool.query(
+      `INSERT INTO employee (${columns.map((c) => `\`${c}\``).join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`,
+      values
+    );
+
+    return res.json({ success: true });
+  } catch (err) {
+    console.error('❌ Executive users create error:', err.message);
+    return res.status(500).json({ error: 'Server error', detail: err.message });
+  }
+});
+
+app.put('/api/executive/users/:userKey', async (req, res) => {
+  try {
+    const parsed = parseExecutiveUserKey(req.params.userKey);
+    if (!parsed) {
+      return res.status(400).json({ error: 'Invalid user key' });
+    }
+
+    const {
+      password,
+      first_name,
+      last_name,
+      phone,
+      profile_url,
+      role,
+      branch_id,
+      salary,
+      rating,
+    } = req.body || {};
+
+    if (parsed.scope === 'executive') {
+      const sets = ['name = ?', 'surname = ?', 'phone = ?'];
+      const values = [
+        first_name ? String(first_name) : '',
+        last_name ? String(last_name) : null,
+        phone ? String(phone) : null,
+      ];
+      if (password) {
+        sets.push('password_hash = ?');
+        values.push(String(password));
+      }
+      values.push(parsed.id);
+      await pool.query(`UPDATE executive SET ${sets.join(', ')} WHERE executive_id = ?`, values);
+      return res.json({ success: true });
+    }
+
+    const phoneColumn = await getExistingColumnName('employee', ['phone', 'phone_number', 'mobile', 'tel']);
+    const salaryColumn = await getExistingColumnName('employee', ['salary', 'base_salary', 'monthly_salary']);
+    const ratingColumn = await getExistingColumnName('employee', ['average_rating', 'rating']);
+    const profileUrlColumn = await getExistingColumnName('employee', ['employee_profile_url', 'profile_url', 'profile_image_url']);
+
+    const sets = ['name = ?', 'surname = ?', 'branch_id = ?'];
+    const values = [
+      first_name ? String(first_name) : '',
+      last_name ? String(last_name) : null,
+      branch_id ? Number(branch_id) : null,
+    ];
+
+    if (password) {
+      sets.push('password_hash = ?');
+      values.push(String(password));
+    }
+
+    if (phoneColumn) {
+      sets.push(`\`${phoneColumn}\` = ?`);
+      values.push(phone ? String(phone) : null);
+    }
+    if (salaryColumn) {
+      sets.push(`\`${salaryColumn}\` = ?`);
+      values.push(Number(salary || 0));
+    }
+    if (ratingColumn) {
+      sets.push(`\`${ratingColumn}\` = ?`);
+      values.push(Number(rating || 0));
+    }
+    if (profileUrlColumn) {
+      const normalizedProfileUrl = String(profile_url || '').trim();
+      sets.push(`\`${profileUrlColumn}\` = ?`);
+      values.push(normalizedProfileUrl || null);
+    }
+
+    if (role) {
+      const roleTable = await getExistingTableName(['employee_role', 'role', 'roles']);
+      if (roleTable) {
+        const roleNameColumn = await getExistingColumnName(roleTable, ['role_name', 'name']);
+        const roleIdColumn = await getExistingColumnName(roleTable, ['role_id', 'id']);
+        if (roleNameColumn && roleIdColumn) {
+          const [roleRows] = await pool.query(
+            `SELECT \`${roleIdColumn}\` AS role_id FROM \`${roleTable}\` WHERE LOWER(\`${roleNameColumn}\`) = LOWER(?) LIMIT 1`,
+            [String(role)]
+          );
+          if (Array.isArray(roleRows) && roleRows.length > 0) {
+            sets.push('role_id = ?');
+            values.push(Number(roleRows[0].role_id));
+          }
+        }
+      }
+    }
+
+    values.push(parsed.id);
+    await pool.query(`UPDATE employee SET ${sets.join(', ')} WHERE employee_id = ?`, values);
+    return res.json({ success: true });
+  } catch (err) {
+    console.error('❌ Executive users update error:', err.message);
+    return res.status(500).json({ error: 'Server error', detail: err.message });
+  }
+});
+
+app.delete('/api/executive/users/:userKey', async (req, res) => {
+  try {
+    const parsed = parseExecutiveUserKey(req.params.userKey);
+    if (!parsed) {
+      return res.status(400).json({ error: 'Invalid user key' });
+    }
+
+    if (parsed.scope === 'executive') {
+      await pool.query('DELETE FROM executive WHERE executive_id = ?', [parsed.id]);
+    } else {
+      await pool.query('DELETE FROM employee WHERE employee_id = ?', [parsed.id]);
+    }
+
+    return res.json({ success: true });
+  } catch (err) {
+    console.error('❌ Executive users delete error:', err.message);
+    return res.status(500).json({ error: 'Server error', detail: err.message });
+  }
+});
+
 // Executive overview: totals for current year, branch list and customer count
 app.get('/api/executive/overview', async (req, res) => {
   try {
+    const ordersTable = (await getExistingTableName(['orders', 'order'])) || 'orders';
     // Support optional filters via query params: start_date, end_date, branch_ids (csv), branch_names (csv), product_type
     const { start_date, end_date, branch_ids, branch_names, product_type } = req.query || {};
     const dateCondition = (field = 'created_at') => {
@@ -2825,12 +5297,12 @@ app.get('/api/executive/overview', async (req, res) => {
       }
     }
 
-    const revSql = `SELECT IFNULL(SUM(total_amount),0) AS total_revenue FROM \`order\` o WHERE ${dateCondition('o.created_at')}${branchFilterSqlOrder}${productFilterSql}`;
+    const revSql = `SELECT IFNULL(SUM(total_amount),0) AS total_revenue FROM \`${ordersTable}\` o WHERE ${dateCondition('o.created_at')}${branchFilterSqlOrder}${productFilterSql}`;
     const revParams = start_date && end_date ? [start_date, end_date, ...params, ...productFilterParams] : [...params, ...productFilterParams];
     const [[revRow]] = await pool.query(revSql, revParams);
 
     // Total orders this year
-    const ordersSql = `SELECT COUNT(*) AS total_orders FROM \`order\` o WHERE ${dateCondition('o.created_at')}${branchFilterSqlOrder}${productFilterSql}`;
+    const ordersSql = `SELECT COUNT(*) AS total_orders FROM \`${ordersTable}\` o WHERE ${dateCondition('o.created_at')}${branchFilterSqlOrder}${productFilterSql}`;
     const ordersParams = start_date && end_date ? [start_date, end_date, ...params, ...productFilterParams] : [...params, ...productFilterParams];
     const [[ordersRow]] = await pool.query(ordersSql, ordersParams);
 
@@ -2843,14 +5315,19 @@ app.get('/api/executive/overview', async (req, res) => {
     // Per-branch performance this year
     // Aggregate orders/revenue in a subquery first to avoid duplication when joining employees
     // Per-branch performance with same filters
+    const employeeRatingColumn = await getExistingColumnName('employee', ['average_rating', 'rating']);
+    const avgRatingSql = employeeRatingColumn
+      ? `COALESCE(AVG(NULLIF(emp.\`${employeeRatingColumn}\`, 0)), 0) AS average_rating,`
+      : '0 AS average_rating,';
     const branchPerfSql = `SELECT b.branch_id, b.branch_name,
               COALESCE(oa.orders,0) AS orders,
               COALESCE(oa.revenue,0) AS revenue,
+              ${avgRatingSql}
               COUNT(DISTINCT emp.employee_id) AS employee_count
        FROM branch b
        LEFT JOIN (
          SELECT branch_id, COUNT(*) AS orders, SUM(total_amount) AS revenue
-         FROM \`order\` o
+         FROM \`${ordersTable}\` o
          WHERE ${dateCondition('o.created_at')}${branchFilterSqlOrder}${productFilterSql}
          GROUP BY branch_id
        ) oa ON oa.branch_id = b.branch_id
@@ -2862,7 +5339,7 @@ app.get('/api/executive/overview', async (req, res) => {
 
     // Top branch (highest revenue)
      const topBranchSql = `SELECT b.branch_id, b.branch_name, IFNULL(SUM(o.total_amount),0) AS revenue
-       FROM \`order\` o
+       FROM \`${ordersTable}\` o
        JOIN branch b ON b.branch_id = o.branch_id
        WHERE ${dateCondition('o.created_at')}${branchFilterSqlO}${productFilterSql}
        GROUP BY b.branch_id, b.branch_name
@@ -2871,19 +5348,36 @@ app.get('/api/executive/overview', async (req, res) => {
      const topBranchParams = start_date && end_date ? [start_date, end_date, ...params, ...productFilterParams] : [...params, ...productFilterParams];
      const [topBranchRows] = await pool.query(topBranchSql, topBranchParams);
 
-    // Top flower (most sold) based on flower_detail linked to shopping_cart within current year orders
-     const topFlowerSql = `SELECT ft.flower_name, COUNT(*) AS qty
-       FROM shopping_cart sc
-       JOIN \`order\` o ON sc.order_id = o.order_id
-       JOIN product pr ON pr.product_id = sc.product_id
-       JOIN flower_detail fd ON fd.shopping_cart_id = sc.shopping_cart_id
-       JOIN flower_type ft ON ft.flower_type_id = fd.flower_type_id
-       WHERE ${dateCondition('o.created_at')}${branchFilterSqlO}${productFilterSql}
-       GROUP BY ft.flower_type_id, ft.flower_name
-       ORDER BY qty DESC
-       LIMIT 1`;
-     const topFlowerParams = start_date && end_date ? [start_date, end_date, ...params, ...productFilterParams] : [...params, ...productFilterParams];
-     const [topFlowerRows] = await pool.query(topFlowerSql, topFlowerParams);
+    // Top flower (most sold) with schema-tolerant joins across flower/flower_type variants
+    let topFlowerRows = [];
+    const flowerDetailTable = await getExistingTableName(['flower_detail']);
+    const flowerMasterTable = await getExistingTableName(['flower', 'flower_type']);
+    if (flowerDetailTable && flowerMasterTable) {
+      const detailFlowerIdColumn = await getExistingColumnName(flowerDetailTable, ['flower_id', 'flower_type_id']);
+      const detailQtyColumn = await getExistingColumnName(flowerDetailTable, ['quantity', 'qty']);
+      const masterIdColumn = await getExistingColumnName(
+        flowerMasterTable,
+        flowerMasterTable === 'flower' ? ['flower_id'] : ['flower_type_id', 'flower_id']
+      );
+      const masterNameColumn = await getExistingColumnName(flowerMasterTable, ['flower_name', 'name']);
+
+      if (detailFlowerIdColumn && masterIdColumn && masterNameColumn) {
+        const qtyExpr = detailQtyColumn ? `IFNULL(SUM(fd.\`${detailQtyColumn}\`),0)` : 'COUNT(*)';
+        const topFlowerSql = `SELECT fm.\`${masterNameColumn}\` AS flower_name, ${qtyExpr} AS qty
+          FROM shopping_cart sc
+          JOIN \`${ordersTable}\` o ON sc.order_id = o.order_id
+          JOIN flower_detail fd ON fd.shopping_cart_id = sc.shopping_cart_id
+          JOIN \`${flowerMasterTable}\` fm ON fm.\`${masterIdColumn}\` = fd.\`${detailFlowerIdColumn}\`
+          WHERE ${dateCondition('o.created_at')}${branchFilterSqlO}${productFilterSql}
+          GROUP BY fm.\`${masterIdColumn}\`, fm.\`${masterNameColumn}\`
+          ORDER BY qty DESC
+          LIMIT 1`;
+        const topFlowerParams = start_date && end_date
+          ? [start_date, end_date, ...params, ...productFilterParams]
+          : [...params, ...productFilterParams];
+        [topFlowerRows] = await pool.query(topFlowerSql, topFlowerParams);
+      }
+    }
 
     return res.json({
       total_revenue: Number(revRow.total_revenue) || 0,
@@ -2903,6 +5397,7 @@ app.get('/api/executive/overview', async (req, res) => {
 // Monthly revenue for current year (returns array with month numbers and revenue)
 app.get('/api/executive/monthly-revenue', async (req, res) => {
   try {
+    const ordersTable = (await getExistingTableName(['orders', 'order'])) || 'orders';
     const { start_date, end_date, branch_ids, branch_names, product_type } = req.query || {};
     const params = [];
     let branchFilterSql = '';
@@ -2939,8 +5434,8 @@ app.get('/api/executive/monthly-revenue', async (req, res) => {
       }
     }
 
-    const sql = `SELECT MONTH(created_at) AS month, IFNULL(SUM(total_amount),0) AS revenue
-       FROM \`order\` o
+     const sql = `SELECT MONTH(created_at) AS month, IFNULL(SUM(total_amount),0) AS revenue
+       FROM \`${ordersTable}\` o
        WHERE ${dateCondition('o.created_at')}${branchFilterSql}${productFilterSqlMonth}
        GROUP BY MONTH(created_at)
        ORDER BY MONTH(created_at)`;
@@ -2964,6 +5459,22 @@ app.get('/api/executive/monthly-revenue', async (req, res) => {
 // Category / Product sales for current year (returns product_name, revenue, percent)
 app.get('/api/executive/category-sales', async (req, res) => {
   try {
+    const ordersTable = (await getExistingTableName(['orders', 'order'])) || 'orders';
+    const cartTotalColumn = await getExistingColumnName('shopping_cart', ['price_total', 'line_total', 'total_price', 'amount']);
+    const cartQtyColumn = await getExistingColumnName('shopping_cart', ['qty', 'quantity']);
+    const cartUnitPriceColumn = await getExistingColumnName('shopping_cart', ['unit_price', 'price']);
+
+    let revenueExpr = '0';
+    if (cartTotalColumn) {
+      revenueExpr = `IFNULL(SUM(sc.\`${cartTotalColumn}\`),0)`;
+    } else if (cartQtyColumn && cartUnitPriceColumn) {
+      revenueExpr = `IFNULL(SUM(sc.\`${cartQtyColumn}\` * sc.\`${cartUnitPriceColumn}\`),0)`;
+    } else if (cartQtyColumn) {
+      revenueExpr = `IFNULL(SUM(sc.\`${cartQtyColumn}\` * IFNULL(pr.product_price,0)),0)`;
+    } else if (cartUnitPriceColumn) {
+      revenueExpr = `IFNULL(SUM(sc.\`${cartUnitPriceColumn}\`),0)`;
+    }
+
     const { start_date, end_date, branch_ids, branch_names, product_type } = req.query || {};
     const params = [];
     let branchFilterSql = '';
@@ -3002,11 +5513,11 @@ app.get('/api/executive/category-sales', async (req, res) => {
     const sql = `SELECT pr.product_id,
               pr.product_name,
               pt.product_type_name AS product_type,
-              IFNULL(SUM(sc.price_total),0) AS revenue
+        ${revenueExpr} AS revenue
        FROM shopping_cart sc
        JOIN product pr ON pr.product_id = sc.product_id
        LEFT JOIN product_type pt ON pt.product_type_id = pr.product_type_id
-       JOIN \`order\` o ON o.order_id = sc.order_id
+      JOIN \`${ordersTable}\` o ON o.order_id = sc.order_id
        WHERE ${dateCondition('o.created_at')}${branchFilterSql}${productFilterSql}
        GROUP BY pr.product_id, pr.product_name, pt.product_type_name
        ORDER BY revenue DESC`;
@@ -3034,7 +5545,7 @@ app.get('/api/executive/category-sales', async (req, res) => {
 app.get('/api/manager/weekly-sales/:branchId', async (req, res) => {
   try {
     const { branchId } = req.params;
-    const { date_range, product_type_id } = req.query || {};
+    const { date_range, product_type_id, member_level } = req.query || {};
     const baseParams = [Number(branchId)];
     const ordersTable = 'orders';
 
@@ -3068,8 +5579,33 @@ app.get('/api/manager/weekly-sales/:branchId', async (req, res) => {
       }
     }
 
-    const commonWhere = `o.branch_id = ?${dateCondition}${productTypeCondition}`;
-    const commonParams = [...baseParams, ...dateParams, ...productTypeParams];
+    // Build member level filter condition
+    let memberLevelCondition = '';
+    const memberLevelParams = [];
+    const memberLevelRaw = String(member_level || '').trim();
+    if (memberLevelRaw && memberLevelRaw.toLowerCase() !== 'all') {
+      const normalizedMemberLevel = memberLevelRaw.toLowerCase();
+      const levelIdMap = {
+        member: 1,
+        silver: 2,
+        gold: 3,
+        platinum: 4,
+      };
+      const mappedId = levelIdMap[normalizedMemberLevel];
+      if (Number.isFinite(mappedId)) {
+        memberLevelCondition = ' AND c.member_level_id = ?';
+        memberLevelParams.push(mappedId);
+      } else if (/^\d+$/.test(memberLevelRaw)) {
+        memberLevelCondition = ' AND c.member_level_id = ?';
+        memberLevelParams.push(Number(memberLevelRaw));
+      } else {
+        memberLevelCondition = ' AND LOWER(COALESCE(ml.member_level_name, "")) = ?';
+        memberLevelParams.push(normalizedMemberLevel);
+      }
+    }
+
+    const commonWhere = `o.branch_id = ?${dateCondition}${productTypeCondition}${memberLevelCondition}`;
+    const commonParams = [...baseParams, ...dateParams, ...productTypeParams, ...memberLevelParams];
 
     const formatLocalDate = (date) => {
       const y = date.getFullYear();
@@ -3099,6 +5635,8 @@ app.get('/api/manager/weekly-sales/:branchId', async (req, res) => {
       const latestSql = `
         SELECT MAX(DATE(o.created_at)) AS latest_date
         FROM ${ordersTable} o
+        JOIN customer c ON c.customer_id = o.customer_id
+        LEFT JOIN member_level ml ON ml.member_level_id = c.member_level_id
         WHERE ${commonWhere}
       `;
       const [[latestRow]] = await pool.query(latestSql, commonParams);
@@ -3110,6 +5648,8 @@ app.get('/api/manager/weekly-sales/:branchId', async (req, res) => {
     const sql = `
       SELECT DATE(o.created_at) AS date, IFNULL(SUM(o.total_amount),0) AS sales
       FROM ${ordersTable} o
+      JOIN customer c ON c.customer_id = o.customer_id
+      LEFT JOIN member_level ml ON ml.member_level_id = c.member_level_id
       WHERE ${commonWhere}
         AND DATE(o.created_at) >= DATE_SUB(${anchorDateExpr}, INTERVAL 6 DAY)
         AND DATE(o.created_at) <= ${anchorDateExpr}
@@ -3146,7 +5686,7 @@ app.get('/api/manager/weekly-sales/:branchId', async (req, res) => {
 app.get('/api/manager/top-products/:branchId', async (req, res) => {
   try {
     const { branchId } = req.params;
-    const { date_range, product_type_id } = req.query || {};
+    const { date_range, product_type_id, member_level } = req.query || {};
     const params = [Number(branchId)];
     const ordersTable = (await getExistingTableName(['orders', 'order'])) || 'orders';
 
@@ -3180,6 +5720,31 @@ app.get('/api/manager/top-products/:branchId', async (req, res) => {
       }
     }
 
+    // Build member level filter condition
+    let memberLevelCondition = '';
+    const memberLevelParams = [];
+    const memberLevelRaw = String(member_level || '').trim();
+    if (memberLevelRaw && memberLevelRaw.toLowerCase() !== 'all') {
+      const normalizedMemberLevel = memberLevelRaw.toLowerCase();
+      const levelIdMap = {
+        member: 1,
+        silver: 2,
+        gold: 3,
+        platinum: 4,
+      };
+      const mappedId = levelIdMap[normalizedMemberLevel];
+      if (Number.isFinite(mappedId)) {
+        memberLevelCondition = ' AND c.member_level_id = ?';
+        memberLevelParams.push(mappedId);
+      } else if (/^\d+$/.test(memberLevelRaw)) {
+        memberLevelCondition = ' AND c.member_level_id = ?';
+        memberLevelParams.push(Number(memberLevelRaw));
+      } else {
+        memberLevelCondition = ' AND LOWER(COALESCE(ml.member_level_name, "")) = ?';
+        memberLevelParams.push(normalizedMemberLevel);
+      }
+    }
+
     const cartQtyColumn = await getExistingColumnName('shopping_cart', ['quantity', 'qty']);
     const cartTotalPriceColumn =
       (await getExistingColumnName('shopping_cart', ['total_price', 'price_total'])) ||
@@ -3204,15 +5769,17 @@ app.get('/api/manager/top-products/:branchId', async (req, res) => {
         GROUP BY order_id
       ) oct ON oct.order_id = sc.order_id
       JOIN ${ordersTable} o ON sc.order_id = o.order_id
+      JOIN customer c ON c.customer_id = o.customer_id
+      LEFT JOIN member_level ml ON ml.member_level_id = c.member_level_id
       JOIN product pr ON pr.product_id = sc.product_id
       LEFT JOIN product_type pt ON pt.product_type_id = pr.product_type_id
-      WHERE o.branch_id = ?${dateCondition}${productTypeCondition}
+      WHERE o.branch_id = ?${dateCondition}${productTypeCondition}${memberLevelCondition}
       GROUP BY pr.product_id, pr.product_name, pt.product_type_name
       ORDER BY qty_sold DESC
       LIMIT 10
     `;
 
-    const queryParams = [...params, ...dateParams, ...productTypeParams];
+    const queryParams = [...params, ...dateParams, ...productTypeParams, ...memberLevelParams];
     const [rows] = await pool.query(sql, queryParams);
     return res.json(rows);
   } catch (err) {

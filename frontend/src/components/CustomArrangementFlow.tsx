@@ -79,15 +79,6 @@ const parseFlowerPrice = (value: unknown) => {
   return Number.isFinite(n) && n >= 0 ? n : 0;
 };
 
-const fillerFlowerUnitPrices: Record<string, number> = {
-  'ดอกยิปโซ': 35,
-  'gypsophila': 35,
-  'ดอกคัตเตอร์': 40,
-  'cutter': 40,
-};
-
-const normalizeLabel = (value: string) => value.trim().toLowerCase();
-
 const inferBouquetKindFromProductName = (name: string): BouquetKind => {
   const normalizedName = String(name || '').trim().toLowerCase();
   if (normalizedName.includes('money') || normalizedName.includes('เงิน')) {
@@ -95,8 +86,6 @@ const inferBouquetKindFromProductName = (name: string): BouquetKind => {
   }
   return 'normal';
 };
-
-const getFillerFlowerUnitPrice = (label: string) => fillerFlowerUnitPrices[normalizeLabel(label)] ?? 45;
 
 const resolveDbImageUrl = (raw?: string | null) => {
   const value = String(raw || '').trim();
@@ -373,11 +362,6 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
     [mainFlowers]
   );
 
-  const fillerFlowerTotal = useMemo(() => {
-    if (!fillerFlower) return 0;
-    return getFillerFlowerUnitPrice(fillerFlower.label);
-  }, [fillerFlower]);
-
   const isMoneyAmountValid = useMemo(() => {
     if (!selectedMonetaryBouquetId || moneyAmount === null) return false;
     const selectedBouquet = monetaryBouquets.find(b => b.monetary_bouquet_id === selectedMonetaryBouquetId);
@@ -409,7 +393,6 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
 
     if (productType === 'bouquet' && bouquetKind) {
       total += mainFlowerTotal;
-      total += fillerFlowerTotal;
       total += Number(selectedWrappingMaterial?.wrapping_price ?? 0);
       if (selectedRibbon) total += 25;
 
@@ -427,7 +410,6 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
       total += Number(selectedVaseShape?.vase_price ?? 0);
 
       total += mainFlowerTotal;
-      total += fillerFlowerTotal;
     }
 
     if (hasCard) total += Number(selectedCard?.card_price ?? 0);
@@ -435,7 +417,6 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
     return Math.round(total / 10) * 10;
   }, [
     bouquetKind,
-    fillerFlowerTotal,
     hasCard,
     mainFlowerTotal,
     moneyAmount,
@@ -762,7 +743,7 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
               {fillerFlower && (
                 <div className="flex items-start justify-between gap-4 py-1.5 text-base">
                   <span>ดอกแซม</span>
-                  <span className="font-medium text-right">{fillerFlower.label} (+฿{getFillerFlowerUnitPrice(fillerFlower.label).toLocaleString()})</span>
+                  <span className="font-medium text-right">{fillerFlower.label}</span>
                 </div>
               )}
               {moneyPackage && (
@@ -1173,7 +1154,7 @@ export function CustomArrangementFlow({ productType, onBack, onComplete }: Custo
                   <h3 className="text-gray-800 mb-3">ดอกแซมที่เลือก</h3>
                   {fillerFlower ? (
                     <div className="rounded-xl border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700">
-                      {fillerFlower.label} คิดราคาเหมารวม ฿{getFillerFlowerUnitPrice(fillerFlower.label).toLocaleString()}
+                      {fillerFlower.label} (ไม่คิดราคาเพิ่ม)
                     </div>
                   ) : (
                     <div className="rounded-xl bg-gray-50 text-gray-500 p-3 text-sm">ไม่ได้เลือกดอกแซม</div>

@@ -50,17 +50,6 @@ CREATE TABLE customer (
     FOREIGN KEY (member_level_id) REFERENCES member_level(member_level_id)
 );
 
-CREATE TABLE point_transaction (
-    transaction_id INT AUTO_INCREMENT PRIMARY KEY,
-    customer_id INT,
-    order_id INT,
-    type VARCHAR(50),
-    point INT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (customer_id) REFERENCES customer(customer_id),
-    FOREIGN KEY (order_id) REFERENCES orders(order_id)
-);
-
 -- ======================
 -- 3. BRANCH / EMPLOYEE
 -- ======================
@@ -167,9 +156,20 @@ CREATE TABLE orders (
     total_amount DECIMAL(10,2),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (branch_id) REFERENCES branch(branch_id),
-    FOREIGN KEY (promotion_id) REFERENCES promotion(promotion_id),
     FOREIGN KEY (customer_id) REFERENCES customer(customer_id)
 );
+
+CREATE TABLE point_transaction (
+    transaction_id INT AUTO_INCREMENT PRIMARY KEY,
+    customer_id INT,
+    order_id INT,
+    type VARCHAR(50),
+    point INT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (customer_id) REFERENCES customer(customer_id),
+    FOREIGN KEY (order_id) REFERENCES orders(order_id)
+);
+
 
 CREATE TABLE order_address(
 	order_address_id INT AUTO_INCREMENT PRIMARY KEY,
@@ -402,8 +402,8 @@ CREATE TABLE prepare (
     employee_id INT,
     florist_photo_url TEXT,
     prepare_status VARCHAR(50),
-    assigned_at TIMESTAMP,
-    completed_at TIMESTAMP,
+    assigned_at TIMESTAMP NULL DEFAULT NULL,
+    completed_at TIMESTAMP NULL DEFAULT NULL,
     FOREIGN KEY (order_id) REFERENCES orders(order_id),
     FOREIGN KEY (employee_id) REFERENCES employee(employee_id)
 );
@@ -414,8 +414,8 @@ CREATE TABLE delivery (
     employee_id INT,
     rider_photo_url TEXT,
     delivery_status VARCHAR(50),
-    assigned_at TIMESTAMP,
-    completed_at TIMESTAMP,
+    assigned_at TIMESTAMP NULL DEFAULT NULL,
+    completed_at TIMESTAMP NULL DEFAULT NULL,
     FOREIGN KEY (order_id) REFERENCES orders(order_id),
     FOREIGN KEY (employee_id) REFERENCES employee(employee_id)
 );

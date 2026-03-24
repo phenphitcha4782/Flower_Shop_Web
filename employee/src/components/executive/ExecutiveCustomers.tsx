@@ -1,25 +1,26 @@
 import { ArrowLeft, Filter, Search, Users } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-    Bar,
-    BarChart,
-    CartesianGrid,
-    Legend,
-    Line,
-    LineChart,
-    ResponsiveContainer,
-    Tooltip,
-    XAxis,
-    YAxis,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
 } from 'recharts';
 
 type Gender = 'ชาย' | 'หญิง' | 'ไม่ระบุ';
-type MemberLevel = 'Bronze' | 'Silver' | 'Gold' | 'Platinum';
+type MemberLevel = string;
 
 interface PurchaseRecord {
   date: string; // YYYY-MM-DD
   time: string; // HH:mm
+  branch?: string;
   amount: number;
 }
 
@@ -30,7 +31,7 @@ interface CustomerItem {
   firstName: string;
   lastName: string;
   gender: Gender;
-  birthDate: string;
+  birthDate: string | null;
   memberLevel: MemberLevel;
   purchases: PurchaseRecord[];
 }
@@ -207,9 +208,11 @@ const inAmountRange = (value: number, range: string) => {
   return value >= 3000;
 };
 
-const calculateAge = (birthDate: string) => {
+const calculateAge = (birthDate: string | null) => {
+  if (!birthDate || !/^\d{4}-\d{2}-\d{2}$/.test(birthDate)) return null;
   const today = new Date();
   const birth = new Date(`${birthDate}T00:00:00`);
+  if (!Number.isFinite(birth.getTime())) return null;
   let age = today.getFullYear() - birth.getFullYear();
   const monthDiff = today.getMonth() - birth.getMonth();
   const isBirthdayPassed = monthDiff > 0 || (monthDiff === 0 && today.getDate() >= birth.getDate());
@@ -217,8 +220,9 @@ const calculateAge = (birthDate: string) => {
   return Math.max(age, 0);
 };
 
-const inAgeRange = (age: number, range: string) => {
+const inAgeRange = (age: number | null, range: string) => {
   if (range === 'all') return true;
+  if (age === null) return false;
   if (range === '18-24') return age >= 18 && age <= 24;
   if (range === '25-34') return age >= 25 && age <= 34;
   if (range === '35-44') return age >= 35 && age <= 44;
@@ -228,23 +232,74 @@ const inAgeRange = (age: number, range: string) => {
 
 export default function ExecutiveCustomers() {
   const navigate = useNavigate();
+  const [customers, setCustomers] = useState<CustomerItem[]>([]);
+  const [branchOptions, setBranchOptions] = useState<string[]>([]);
+  const [memberLevelOptions, setMemberLevelOptions] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
   const [selectedDateRange, setSelectedDateRange] = useState('this-year');
   const [selectedBranch, setSelectedBranch] = useState('all');
   const [selectedGender, setSelectedGender] = useState<'all' | Gender>('all');
   const [selectedAmountRange, setSelectedAmountRange] = useState('all');
   const [selectedAgeRange, setSelectedAgeRange] = useState('all');
-  const [selectedMemberLevel, setSelectedMemberLevel] = useState<'all' | MemberLevel>('all');
+  const [selectedMemberLevel, setSelectedMemberLevel] = useState('all');
   const [customerTableSearch, setCustomerTableSearch] = useState('');
 
-  const branchOptions = useMemo(
-    () => Array.from(new Set(mockCustomers.map((customer) => customer.branch))),
-    []
-  );
+  useEffect(() => {
+    const loadCustomers = async () => {
+      setLoading(true);
+      try {
+        const [customersRes, levelsRes, branchesRes] = await Promise.all([
+          fetch('http://localhost:3000/api/executive/customers-analytics'),
+          fetch('http://localhost:3000/api/executive/member-levels').catch(() => null),
+          fetch('http://localhost:3000/api/branches').catch(() => null),
+        ]);
+
+        if (!customersRes.ok) throw new Error('Failed to load customers analytics');
+        const customersData = await customersRes.json();
+        setCustomers(Array.isArray(customersData) ? customersData : []);
+
+        const levelsData = levelsRes && levelsRes.ok ? await levelsRes.json() : [];
+        const options = Array.isArray(levelsData)
+          ? levelsData
+              .map((item: any) => String(item.member_level_name || '').trim())
+              .filter((name: string) => Boolean(name))
+          : [];
+        setMemberLevelOptions(options);
+
+        const branchesData = branchesRes && branchesRes.ok ? await branchesRes.json() : [];
+        const branchNames = Array.isArray(branchesData)
+          ? branchesData
+              .map((branch: any) => String(branch.branch_name || '').trim())
+              .filter((name: string) => Boolean(name))
+          : [];
+        setBranchOptions(branchNames);
+      } catch (err) {
+        console.error('Failed to load executive customers:', err);
+        setCustomers([]);
+        setMemberLevelOptions([]);
+        setBranchOptions([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadCustomers();
+  }, []);
+
+  useEffect(() => {
+    if (selectedBranch !== 'all' && !branchOptions.includes(selectedBranch)) {
+      setSelectedBranch('all');
+    }
+  }, [branchOptions, selectedBranch]);
 
   const customerRows = useMemo(() => {
-    return mockCustomers
+    return customers
       .map((customer) => {
-        const filteredPurchases = customer.purchases.filter((purchase) => {
+        const purchasesByBranch = selectedBranch === 'all'
+          ? customer.purchases
+          : customer.purchases.filter((purchase) => (purchase.branch || customer.branch) === selectedBranch);
+
+        const filteredPurchases = purchasesByBranch.filter((purchase) => {
           return isPurchaseInRange(purchase.date, selectedDateRange);
         });
 
@@ -259,15 +314,14 @@ export default function ExecutiveCustomers() {
         };
       })
       .filter((customer) => {
-        const matchesBranch = selectedBranch === 'all' || customer.branch === selectedBranch;
         const matchesGender = selectedGender === 'all' || customer.gender === selectedGender;
         const matchesAmount = inAmountRange(customer.totalSpent, selectedAmountRange);
         const matchesAge = inAgeRange(customer.age, selectedAgeRange);
         const matchesMemberLevel = selectedMemberLevel === 'all' || customer.memberLevel === selectedMemberLevel;
         const hasPurchaseInPeriod = customer.purchaseCount > 0;
-        return matchesBranch && matchesGender && matchesAmount && matchesAge && matchesMemberLevel && hasPurchaseInPeriod;
+        return matchesGender && matchesAmount && matchesAge && matchesMemberLevel && hasPurchaseInPeriod;
       });
-  }, [selectedDateRange, selectedBranch, selectedGender, selectedAmountRange, selectedAgeRange, selectedMemberLevel]);
+  }, [customers, selectedDateRange, selectedBranch, selectedGender, selectedAmountRange, selectedAgeRange, selectedMemberLevel]);
 
   const purchaseFrequencyData = useMemo(() => {
     return monthLabels.map((monthLabel, monthIndex) => {
@@ -457,14 +511,15 @@ export default function ExecutiveCustomers() {
               <label className="block text-xs text-gray-700 mb-1">ระดับสมาชิก</label>
               <select
                 value={selectedMemberLevel}
-                onChange={(e) => setSelectedMemberLevel(e.target.value as 'all' | MemberLevel)}
+                onChange={(e) => setSelectedMemberLevel(e.target.value)}
                 className="w-full px-3 py-2 border-2 border-gray-200 rounded-lg bg-white focus:border-blue-500 focus:outline-none"
               >
                 <option value="all">ทั้งหมด</option>
-                <option value="Bronze">Bronze</option>
-                <option value="Silver">Silver</option>
-                <option value="Gold">Gold</option>
-                <option value="Platinum">Platinum</option>
+                {memberLevelOptions.map((level) => (
+                  <option key={level} value={level}>
+                    {level}
+                  </option>
+                ))}
               </select>
               </div>
           </div>
@@ -571,13 +626,18 @@ export default function ExecutiveCustomers() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
+                {loading && (
+                  <tr>
+                    <td colSpan={6} className="px-6 py-8 text-center text-gray-500">กำลังโหลดข้อมูลลูกค้า...</td>
+                  </tr>
+                )}
                 {filteredCustomerTableRows.map((customer) => (
                   <tr key={customer.id} className="odd:bg-white even:bg-slate-50/60 hover:bg-blue-50 transition-colors">
                     <td className="px-6 py-4 text-gray-700">{customer.phone}</td>
                     <td className="px-6 py-4 text-gray-900">{customer.firstName}</td>
                     <td className="px-6 py-4 text-gray-900">{customer.lastName}</td>
                     <td className="px-6 py-4 text-gray-700">{customer.gender}</td>
-                    <td className="px-6 py-4 text-gray-700">{customer.age} ปี</td>
+                    <td className="px-6 py-4 text-gray-700">{customer.age === null ? '-' : `${customer.age} ปี`}</td>
                     <td className="px-6 py-4 text-gray-700">{customer.memberLevel}</td>
                   </tr>
                 ))}
@@ -585,7 +645,7 @@ export default function ExecutiveCustomers() {
             </table>
           </div>
 
-          {filteredCustomerTableRows.length === 0 && (
+          {!loading && filteredCustomerTableRows.length === 0 && (
             <div className="py-10 text-center text-gray-500">ไม่พบข้อมูลลูกค้าที่ตรงกับเงื่อนไข</div>
           )}
         </section>

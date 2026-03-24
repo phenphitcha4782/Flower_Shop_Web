@@ -1,6 +1,8 @@
 import { ArrowLeft, Building2, Edit2, Plus, Search, Trash2, UserCircle2, Users, X } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+
+type EmployeeRole = 'cashier' | 'florist' | 'rider' | 'manager' | 'executive' | 'unknown';
 
 export default function UserManagement() {
   const navigate = useNavigate();
@@ -16,6 +18,33 @@ export default function UserManagement() {
   const [complaintRoleFilter, setComplaintRoleFilter] = useState('all');
   const [complaintScoreFilter, setComplaintScoreFilter] = useState('all');
   const [complaintStatusFilter, setComplaintStatusFilter] = useState('all');
+  const [users, setUsers] = useState<any[]>([]);
+  const [branches, setBranches] = useState<any[]>([]);
+  const [topRevenueBranch, setTopRevenueBranch] = useState('');
+  const [topRevenueValue, setTopRevenueValue] = useState(0);
+  const [loadingUsers, setLoadingUsers] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  const normalizeRole = (rawRole: any, roleId?: any, scope?: string) => {
+    if (scope === 'executive') return 'executive';
+    const text = String(rawRole || '').trim().toLowerCase();
+    const id = Number(roleId);
+
+    if (text === 'cashier' || text.includes('แคชเชียร์')) return 'cashier';
+    if (text === 'florist' || text.includes('ช่างจัดดอกไม้') || text.includes('จัดดอกไม้') || text.includes('florist')) return 'florist';
+    if (text === 'rider' || text.includes('ไรเดอร์') || text.includes('ขนส่ง') || text.includes('ส่งของ')) return 'rider';
+    if (text === 'manager' || text.includes('ผู้จัดการ')) return 'manager';
+    if (text === 'executive' || text.includes('ผู้บริหาร')) return 'executive';
+
+    if (!Number.isNaN(id)) {
+      if (id === 1) return 'manager';
+      if (id === 2) return 'cashier';
+      if (id === 3) return 'florist';
+      if (id === 4) return 'rider';
+    }
+
+    return 'unknown';
+  };
 
   // Form states
   const [formData, setFormData] = useState({
@@ -24,6 +53,7 @@ export default function UserManagement() {
     firstName: '',
     lastName: '',
     phone: '',
+    profileUrl: '',
     branch: '',
     role: 'cashier',
     salary: '',
@@ -31,128 +61,169 @@ export default function UserManagement() {
     assignedJobs: ''
   });
 
-  const users = [
-    {
-      id: '1',
-      username: 'cashier001',
-      profileImage: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=200&q=80',
-      firstName: 'สมชาย',
-      lastName: 'ใจดี',
-      phone: '081-234-5678',
-      branch: 'พิจิตร',
-      role: 'cashier',
-      salary: 16000,
-      rating: 4.6,
-      assignedJobs: 128,
-      performanceMonth: '2026-01',
-      createdAt: '2025-01-15'
-    },
-    {
-      id: '2',
-      username: 'florist001',
-      profileImage: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=200&q=80',
-      firstName: 'สมหญิง',
-      lastName: 'รักดอกไม้',
-      phone: '082-345-6789',
-      branch: 'พิจิตร',
-      role: 'florist',
-      salary: 18500,
-      rating: 4.8,
-      assignedJobs: 96,
-      performanceMonth: '2026-01',
-      createdAt: '2025-01-15'
-    },
-    {
-      id: '3',
-      username: 'rider001',
-      profileImage: 'https://images.unsplash.com/photo-1542204625-de293a8e0fe6?auto=format&fit=crop&w=200&q=80',
-      firstName: 'สมศักดิ์',
-      lastName: 'ขับเร็ว',
-      phone: '083-456-7890',
-      branch: 'พิจิตร',
-      role: 'rider',
-      salary: 17000,
-      rating: 4.4,
-      assignedJobs: 212,
-      performanceMonth: '2026-02',
-      createdAt: '2025-01-16'
-    },
-    {
-      id: '4',
-      username: 'manager001',
-      profileImage: 'https://images.unsplash.com/photo-1560250097-0b93528c311a?auto=format&fit=crop&w=200&q=80',
-      firstName: 'สมพร',
-      lastName: 'จัดการเก่ง',
-      phone: '084-567-8901',
-      branch: 'พิจิตร',
-      role: 'manager',
-      salary: 32000,
-      rating: 4.9,
-      assignedJobs: 61,
-      performanceMonth: '2026-02',
-      createdAt: '2025-01-10'
-    },
-    {
-      id: '5',
-      username: 'cashier002',
-      profileImage: 'https://images.unsplash.com/photo-1504593811423-6dd665756598?auto=format&fit=crop&w=200&q=80',
-      firstName: 'วิชัย',
-      lastName: 'บริการดี',
-      phone: '085-678-9012',
-      branch: 'แพร่',
-      role: 'cashier',
-      salary: 15800,
-      rating: 4.3,
-      assignedJobs: 104,
-      performanceMonth: '2026-02',
-      createdAt: '2025-01-18'
-    },
-    {
-      id: '6',
-      username: 'florist002',
-      profileImage: 'https://images.unsplash.com/photo-1487412720507-e7ab37603c6f?auto=format&fit=crop&w=200&q=80',
-      firstName: 'วรรณา',
-      lastName: 'สวยงาม',
-      phone: '086-789-0123',
-      branch: 'แพร่',
-      role: 'florist',
-      salary: 18200,
-      rating: 4.7,
-      assignedJobs: 88,
-      performanceMonth: '2026-03',
-      createdAt: '2025-01-18'
-    },
-    {
-      id: '7',
-      username: 'rider002',
-      profileImage: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=200&q=80',
-      firstName: 'ประยุทธ',
-      lastName: 'ส่งไว',
-      phone: '087-890-1234',
-      branch: 'สงขลา',
-      role: 'rider',
-      salary: 17200,
-      rating: 4.2,
-      assignedJobs: 187,
-      performanceMonth: '2026-03',
-      createdAt: '2025-01-20'
-    },
-    {
-      id: '8',
-      username: 'executive001',
-      profileImage: 'https://images.unsplash.com/photo-1556157382-97eda2d62296?auto=format&fit=crop&w=200&q=80',
-      firstName: 'นายใหญ่',
-      lastName: 'บริหารดี',
-      phone: '088-901-2345',
-      branch: 'ทุกสาขา',
-      role: 'executive',
-      salary: 65000,
-      rating: 5.0,
-      assignedJobs: 24,
-      performanceMonth: '2026-03',
-      createdAt: '2025-01-01'
+  const normalizePositive = (value: number, maxValue: number) => {
+    if (!Number.isFinite(value) || value <= 0) return 0;
+    if (!Number.isFinite(maxValue) || maxValue <= 0) return 0;
+    return Math.min(Math.max(value / maxValue, 0), 1);
+  };
+
+  const normalizeLowerIsBetter = (value: number, minValue: number, maxValue: number) => {
+    if (!Number.isFinite(value) || value <= 0) return 0;
+    if (!Number.isFinite(minValue) || !Number.isFinite(maxValue) || maxValue <= 0) return 0;
+    if (maxValue === minValue) return 1;
+    return Math.min(Math.max((maxValue - value) / (maxValue - minValue), 0), 1);
+  };
+
+  const computeOutstandingScore = (employee: any, roleUsers: any[]) => {
+    const maxRating = Math.max(...roleUsers.map((u) => Number(u.rating || 0)), 0);
+    const maxOrders = Math.max(...roleUsers.map((u) => Number(u.assignedJobs || 0)), 0);
+    const ratingScore = normalizePositive(Number(employee.rating || 0), maxRating);
+    const orderScore = normalizePositive(Number(employee.assignedJobs || 0), maxOrders);
+
+    if (employee.role === 'cashier') {
+      return (ratingScore * 0.5) + (orderScore * 0.5);
     }
-  ];
+
+    if (employee.role === 'florist' || employee.role === 'rider') {
+      const roleDurations = roleUsers
+        .map((u) => Number(u.averageTaskMinutes || 0))
+        .filter((v) => Number.isFinite(v) && v > 0);
+      const minDuration = roleDurations.length > 0 ? Math.min(...roleDurations) : 0;
+      const maxDuration = roleDurations.length > 0 ? Math.max(...roleDurations) : 0;
+      const durationScore = normalizeLowerIsBetter(Number(employee.averageTaskMinutes || 0), minDuration, maxDuration);
+      return (durationScore * 0.3) + (ratingScore * 0.3) + (orderScore * 0.4);
+    }
+
+    return 0;
+  };
+
+  const loadUsersAndPerformance = async () => {
+    setLoadingUsers(true);
+    try {
+      const [usersRes, perfRes, overviewRes] = await Promise.all([
+        fetch('http://localhost:3000/api/executive/users'),
+        fetch('http://localhost:3000/api/executive/employee-performance').catch(() => null),
+        fetch('http://localhost:3000/api/executive/overview').catch(() => null),
+      ]);
+
+      if (!usersRes.ok) throw new Error('Failed to load users');
+      const usersData = await usersRes.json();
+      const perfData = perfRes && perfRes.ok ? await perfRes.json() : [];
+      const overviewData = overviewRes && overviewRes.ok ? await overviewRes.json() : null;
+
+      const resolvedTopBranch = String(overviewData?.top_branch?.branch_name || '').trim();
+      const resolvedTopRevenue = Number(overviewData?.top_branch?.revenue || 0);
+      setTopRevenueBranch(resolvedTopBranch);
+      setTopRevenueValue(resolvedTopRevenue);
+
+      const perfMap = new Map<number, any>();
+      if (Array.isArray(perfData)) {
+        perfData.forEach((p: any) => {
+          const employeeId = Number(p.employee_id || 0);
+          if (employeeId > 0) perfMap.set(employeeId, p);
+        });
+      }
+
+      const mapped = (Array.isArray(usersData) ? usersData : [])
+        .filter((u: any) => String(u.scope || '') !== 'executive')
+        .map((u: any) => {
+          const month = u.created_at ? String(u.created_at).slice(0, 7) : '';
+          const fullName = `${u.first_name || ''} ${u.last_name || ''}`.trim() || u.username;
+          const role = normalizeRole(u.role_name || u.role_key, u.role_id, u.scope) as EmployeeRole;
+          const perf = perfMap.get(Number(u.raw_id || 0)) || {};
+          const profileUrlRaw = String(u.profile_image || '').trim();
+          const profileUrl = profileUrlRaw
+            ? (profileUrlRaw.startsWith('http://') || profileUrlRaw.startsWith('https://')
+              ? profileUrlRaw
+              : `http://localhost:3000${profileUrlRaw.startsWith('/') ? '' : '/'}${profileUrlRaw}`)
+            : '';
+
+          let assignedJobs = 0;
+          let averageTaskMinutes = 0;
+          if (role === 'cashier') {
+            assignedJobs = Number(perf.cashier_orders || 0);
+          } else if (role === 'florist') {
+            assignedJobs = Number(perf.florist_orders || 0);
+            averageTaskMinutes = Number(perf.florist_avg_minutes || 0);
+          } else if (role === 'rider') {
+            assignedJobs = Number(perf.rider_orders || 0);
+            averageTaskMinutes = Number(perf.rider_avg_minutes || 0);
+          }
+
+          return {
+            id: String(u.id),
+            rawId: Number(u.raw_id || 0),
+            scope: u.scope || 'employee',
+            username: u.username || '',
+            profileUrl: profileUrlRaw,
+            profileImage:
+              profileUrl ||
+              `https://ui-avatars.com/api/?name=${encodeURIComponent(fullName)}&background=e8f1ff&color=2563eb`,
+            firstName: u.first_name || '',
+            lastName: u.last_name || '',
+            phone: u.phone || '-',
+            branchId: u.branch_id ? String(u.branch_id) : '',
+            branch: u.branch_name || 'ทุกสาขา',
+            role,
+            salary: Number(u.salary || 0),
+            rating: Number(perf.average_rating ?? u.rating ?? 0),
+            assignedJobs,
+            averageTaskMinutes,
+            outstandingScore: 0,
+            performanceMonth: month,
+            createdAt: u.created_at || null,
+          };
+        });
+
+      const byRole = {
+        cashier: mapped.filter((u: any) => u.role === 'cashier'),
+        florist: mapped.filter((u: any) => u.role === 'florist'),
+        rider: mapped.filter((u: any) => u.role === 'rider'),
+      };
+
+      const withScores = mapped.map((u: any) => {
+        const roleUsers = u.role === 'cashier'
+          ? byRole.cashier
+          : u.role === 'florist'
+            ? byRole.florist
+            : u.role === 'rider'
+              ? byRole.rider
+              : [];
+        if (roleUsers.length === 0) return u;
+        return {
+          ...u,
+          outstandingScore: computeOutstandingScore(u, roleUsers),
+        };
+      });
+
+      setUsers(withScores);
+    } catch (err) {
+      console.error('Failed to load users:', err);
+      alert('โหลดข้อมูลพนักงานไม่สำเร็จ');
+      setUsers([]);
+      setTopRevenueBranch('');
+      setTopRevenueValue(0);
+    } finally {
+      setLoadingUsers(false);
+    }
+  };
+
+  const fetchBranches = async () => {
+    try {
+      const res = await fetch('http://localhost:3000/api/branches');
+      if (!res.ok) throw new Error('Failed to load branches');
+      const data = await res.json();
+      setBranches(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error('Failed to load branches:', err);
+      setBranches([]);
+    }
+  };
+
+  useEffect(() => {
+    fetchBranches();
+    loadUsersAndPerformance();
+  }, []);
 
   const stats = [
     { label: 'สมาชิกทั้งหมด', value: users.length.toString(), color: 'bg-blue-500', icon: Users },
@@ -161,7 +232,13 @@ export default function UserManagement() {
     { label: 'ไรเดอร์', value: users.filter(u => u.role === 'rider').length.toString(), color: 'bg-orange-500', icon: UserCircle2 }
   ];
 
-  const branchOptions = Array.from(new Set(users.map((user) => user.branch)));
+  const branchOptions = Array.from(
+    new Set(
+      users
+        .filter((user) => user.scope !== 'executive' && user.branchId && user.branch && user.branch !== 'ทุกสาขา')
+        .map((user) => user.branch)
+    )
+  ).sort((a, b) => a.localeCompare(b, 'th'));
   const outstandingMonthOptions = Array.from(
     new Set(users.map((user) => user.performanceMonth).filter(Boolean))
   ).sort();
@@ -172,7 +249,7 @@ export default function UserManagement() {
     return `${month}/${year}`;
   };
 
-  const getTopPerformerByRole = (role: string) => {
+  const getTopPerformerByRole = (role: EmployeeRole) => {
     const roleUsers = users.filter(
       (user) =>
         user.role === role &&
@@ -181,36 +258,126 @@ export default function UserManagement() {
     );
     if (roleUsers.length === 0) return null;
 
-    return roleUsers.sort((a, b) => {
-      const ratingDiff = Number(b.rating || 0) - Number(a.rating || 0);
+    const scored = roleUsers.map((u) => ({
+      user: u,
+      score: computeOutstandingScore(u, roleUsers),
+    }));
+    scored.sort((a, b) => {
+      const scoreDiff = b.score - a.score;
+      if (scoreDiff !== 0) return scoreDiff;
+      const ratingDiff = Number(b.user.rating || 0) - Number(a.user.rating || 0);
       if (ratingDiff !== 0) return ratingDiff;
-      return Number(b.assignedJobs || 0) - Number(a.assignedJobs || 0);
-    })[0];
+      return Number(b.user.assignedJobs || 0) - Number(a.user.assignedJobs || 0);
+    });
+    return {
+      ...scored[0].user,
+      outstandingScore: scored[0].score,
+    };
   };
 
   const outstandingCards = [
     { title: 'พนักงานขายดีเด่น (cashier)', user: getTopPerformerByRole('cashier') },
     { title: 'พนักงานจัดดอกไม้ดีเด่น', user: getTopPerformerByRole('florist') },
     { title: 'พนักงานขนส่งดีเด่น', user: getTopPerformerByRole('rider') },
-    { title: 'ผู้จัดการสาขาดีเด่น', user: getTopPerformerByRole('manager') },
+    {
+      title: 'ผู้จัดการดีเด่น (สาขายอดขายสูงสุด)',
+      user: users.find((u) => u.role === 'manager' && u.branch === topRevenueBranch) || null,
+      note: topRevenueBranch
+        ? `${topRevenueBranch} • ฿${Number(topRevenueValue || 0).toLocaleString('th-TH')}`
+        : 'ยังไม่พบข้อมูลสาขายอดขายสูงสุด'
+    },
   ];
 
-  const handleCreateUser = () => {
-    console.log('Creating user:', formData);
-    setShowCreateModal(false);
-    resetForm();
+  const handleCreateUser = async () => {
+    if (!formData.username || !formData.password || !formData.firstName || !formData.role) {
+      alert('กรอกข้อมูลที่จำเป็นให้ครบก่อนบันทึก');
+      return;
+    }
+    if (!formData.branch) {
+      alert('กรุณาเลือกสาขา');
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const res = await fetch('http://localhost:3000/api/executive/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: formData.username,
+          password: formData.password,
+          first_name: formData.firstName,
+          last_name: formData.lastName,
+          phone: formData.phone,
+          role: formData.role,
+          branch_id: Number(formData.branch),
+          salary: Number(formData.salary || 0),
+        }),
+      });
+      const result = await res.json();
+      if (!res.ok) throw new Error(result?.error || 'Create failed');
+
+      setShowCreateModal(false);
+      resetForm();
+      await loadUsersAndPerformance();
+    } catch (err: any) {
+      console.error('Create user failed:', err);
+      alert(`เพิ่มสมาชิกไม่สำเร็จ: ${err.message}`);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
-  const handleEditUser = () => {
-    console.log('Editing user:', formData);
-    setShowEditModal(false);
-    setEditingUser(null);
-    resetForm();
+  const handleEditUser = async () => {
+    if (!editingUser) return;
+
+    setSubmitting(true);
+    try {
+      const res = await fetch(`http://localhost:3000/api/executive/users/${editingUser.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          password: formData.password || undefined,
+          first_name: formData.firstName,
+          last_name: formData.lastName,
+          phone: formData.phone,
+          profile_url: formData.profileUrl.trim() || null,
+          role: formData.role,
+          branch_id: Number(formData.branch || 0),
+          salary: Number(formData.salary || 0),
+          rating: Number(formData.rating || 0),
+        }),
+      });
+      const result = await res.json();
+      if (!res.ok) throw new Error(result?.error || 'Update failed');
+
+      setShowEditModal(false);
+      setEditingUser(null);
+      resetForm();
+      await loadUsersAndPerformance();
+    } catch (err: any) {
+      console.error('Edit user failed:', err);
+      alert(`แก้ไขสมาชิกไม่สำเร็จ: ${err.message}`);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
-  const handleDeleteUser = (userId: string) => {
-    if (confirm('คุณแน่ใจหรือไม่ที่จะลบสมาชิกคนนี้?')) {
-      console.log('Deleting user:', userId);
+  const handleDeleteUser = async (userId: string) => {
+    if (!confirm('คุณแน่ใจหรือไม่ที่จะลบสมาชิกคนนี้?')) return;
+    setSubmitting(true);
+    try {
+      const res = await fetch(`http://localhost:3000/api/executive/users/${userId}`, {
+        method: 'DELETE',
+      });
+      const result = await res.json();
+      if (!res.ok) throw new Error(result?.error || 'Delete failed');
+      await loadUsersAndPerformance();
+    } catch (err: any) {
+      console.error('Delete user failed:', err);
+      alert(`ลบสมาชิกไม่สำเร็จ: ${err.message}`);
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -222,7 +389,8 @@ export default function UserManagement() {
       firstName: user.firstName,
       lastName: user.lastName,
       phone: user.phone,
-      branch: user.branch,
+      profileUrl: user.profileUrl || user.profileImage || '',
+      branch: user.branchId || '',
       role: user.role,
       salary: String(user.salary ?? ''),
       rating: String(user.rating ?? ''),
@@ -238,6 +406,7 @@ export default function UserManagement() {
       firstName: '',
       lastName: '',
       phone: '',
+      profileUrl: '',
       branch: '',
       role: 'cashier',
       salary: '',
@@ -252,7 +421,8 @@ export default function UserManagement() {
       florist: { label: 'ช่างจัดดอกไม้', color: 'bg-purple-100 text-purple-800' },
       rider: { label: 'ไรเดอร์', color: 'bg-orange-100 text-orange-800' },
       manager: { label: 'ผู้จัดการสาขา', color: 'bg-blue-100 text-blue-800' },
-      executive: { label: 'ผู้บริหาร', color: 'bg-red-100 text-red-800' }
+      executive: { label: 'ผู้บริหาร', color: 'bg-red-100 text-red-800' },
+      unknown: { label: 'ไม่ระบุบทบาท', color: 'bg-gray-100 text-gray-700' }
     };
     const config = roleConfig[role] || { label: role, color: 'bg-gray-100 text-gray-800' };
     return <span className={`px-3 py-1 rounded-full text-sm ${config.color}`}>{config.label}</span>;
@@ -352,6 +522,7 @@ export default function UserManagement() {
             </div>
             <button
               onClick={() => setShowCreateModal(true)}
+              disabled={submitting}
               className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
             >
               <Plus className="w-5 h-5" />
@@ -425,6 +596,9 @@ export default function UserManagement() {
           {outstandingCards.map((card, index) => (
             <div key={index} className="bg-white rounded-xl shadow-md p-6 border border-yellow-100">
               <p className="text-sm text-gray-600 mb-2">{card.title}</p>
+              {'note' in card && card.note && (
+                <p className="text-xs text-blue-700 mb-3">{card.note}</p>
+              )}
               {card.user ? (
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
@@ -482,7 +656,6 @@ export default function UserManagement() {
                 <option value="florist">ช่างจัดดอกไม้</option>
                 <option value="rider">ไรเดอร์</option>
                 <option value="manager">ผู้จัดการสาขา</option>
-                <option value="executive">ผู้บริหาร</option>
               </select>
             </div>
 
@@ -519,11 +692,15 @@ export default function UserManagement() {
                   <th className="px-6 py-3 text-left text-sm text-gray-600">เงินเดือน</th>
                   <th className="px-6 py-3 text-left text-sm text-gray-600">Rating</th>
                   <th className="px-6 py-3 text-left text-sm text-gray-600">จำนวนงานที่รับ</th>
-                  <th className="px-6 py-3 text-left text-sm text-gray-600">วันที่สร้าง</th>
                   <th className="px-6 py-3 text-center text-sm text-gray-600">จัดการ</th>
                 </tr>
               </thead>
               <tbody>
+                {loadingUsers && (
+                  <tr>
+                    <td colSpan={10} className="px-6 py-10 text-center text-gray-500">กำลังโหลดข้อมูลพนักงาน...</td>
+                  </tr>
+                )}
                 {filteredUsers.map((user) => (
                   <tr key={user.id} className="border-b border-gray-100 hover:bg-blue-50 transition-colors">
                     <td className="px-6 py-4">
@@ -553,13 +730,11 @@ export default function UserManagement() {
                     </td>
                     <td className="px-6 py-4 text-gray-900">{Number(user.rating || 0).toFixed(1)}</td>
                     <td className="px-6 py-4 text-gray-900">{Number(user.assignedJobs || 0).toLocaleString('th-TH')}</td>
-                    <td className="px-6 py-4 text-sm text-gray-600">
-                      {new Date(user.createdAt).toLocaleDateString('th-TH')}
-                    </td>
                     <td className="px-6 py-4">
                       <div className="flex items-center justify-center gap-2">
                         <button
                           onClick={() => openEditModal(user)}
+                          disabled={submitting}
                           className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
                           title="แก้ไข"
                         >
@@ -567,6 +742,7 @@ export default function UserManagement() {
                         </button>
                         <button
                           onClick={() => handleDeleteUser(user.id)}
+                          disabled={submitting}
                           className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                           title="ลบ"
                         >
@@ -579,7 +755,7 @@ export default function UserManagement() {
               </tbody>
             </table>
 
-            {filteredUsers.length === 0 && (
+            {!loadingUsers && filteredUsers.length === 0 && (
               <div className="text-center py-12">
                 <Users className="w-16 h-16 text-gray-300 mx-auto mb-4" />
                 <p className="text-gray-500">ไม่พบสมาชิกที่ตรงกับเงื่อนไขการค้นหา</p>
@@ -784,6 +960,20 @@ export default function UserManagement() {
                 />
               </div>
 
+              {showEditModal && (
+                <div>
+                  <label className="block text-sm text-gray-700 mb-2">ลิงก์รูปโปรไฟล์</label>
+                  <input
+                    type="url"
+                    value={formData.profileUrl}
+                    onChange={(e) => setFormData({ ...formData, profileUrl: e.target.value })}
+                    className="w-full px-4 py-2 border-2 border-gray-200 rounded-lg focus:border-blue-500 focus:outline-none"
+                    placeholder="https://example.com/profile.jpg"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">ใส่ URL รูปภาพ เช่น https://... หรือ http://...</p>
+                </div>
+              )}
+
               {/* Branch and Role */}
               <div className="grid md:grid-cols-2 gap-4">
                 <div>
@@ -794,24 +984,30 @@ export default function UserManagement() {
                     className="w-full px-4 py-2 border-2 border-gray-200 rounded-lg focus:border-blue-500 focus:outline-none"
                   >
                     <option value="">เลือกสาขา</option>
-                    <option value="พิจิตร">พิจิตร</option>
-                    <option value="แพร่">แพร่</option>
-                    <option value="สงขลา">สงขลา</option>
-                    <option value="ทุกสาขา">ทุกสาขา</option>
+                    {branches.map((branch) => (
+                      <option key={branch.branch_id} value={String(branch.branch_id)}>
+                        {branch.branch_name}
+                      </option>
+                    ))}
                   </select>
                 </div>
                 <div>
                   <label className="block text-sm text-gray-700 mb-2">บทบาท</label>
                   <select
                     value={formData.role}
-                    onChange={(e) => setFormData({ ...formData, role: e.target.value })}
+                    onChange={(e) => {
+                      const nextRole = e.target.value;
+                      setFormData({
+                        ...formData,
+                        role: nextRole,
+                      });
+                    }}
                     className="w-full px-4 py-2 border-2 border-gray-200 rounded-lg focus:border-blue-500 focus:outline-none"
                   >
                     <option value="cashier">แคชเชียร์</option>
                     <option value="florist">ช่างจัดดอกไม้</option>
                     <option value="rider">ไรเดอร์</option>
                     <option value="manager">ผู้จัดการสาขา</option>
-                    <option value="executive">ผู้บริหาร</option>
                   </select>
                 </div>
               </div>
@@ -868,15 +1064,17 @@ export default function UserManagement() {
                   setEditingUser(null);
                   resetForm();
                 }}
+                disabled={submitting}
                 className="px-6 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
               >
                 ยกเลิก
               </button>
               <button
                 onClick={showCreateModal ? handleCreateUser : handleEditUser}
+                disabled={submitting}
                 className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
               >
-                {showCreateModal ? 'เพิ่มสมาชิก' : 'บันทึกการแก้ไข'}
+                {submitting ? 'กำลังบันทึก...' : showCreateModal ? 'เพิ่มสมาชิก' : 'บันทึกการแก้ไข'}
               </button>
             </div>
           </div>
