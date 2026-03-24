@@ -17,6 +17,8 @@ const floristUploadDir = path.join(__dirname, 'uploads', 'florist');
 fs.mkdirSync(floristUploadDir, { recursive: true });
 const riderUploadDir = path.join(__dirname, 'uploads', 'rider');
 fs.mkdirSync(riderUploadDir, { recursive: true });
+const customerUploadDir = path.join(__dirname, 'uploads', 'customer');
+fs.mkdirSync(customerUploadDir, { recursive: true });
 
 const floristPhotoUpload = multer({
   storage: multer.diskStorage({
@@ -56,12 +58,31 @@ const riderPhotoUpload = multer({
   },
 });
 
+const customerPhotoUpload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, customerUploadDir),
+    filename: (_req, file, cb) => {
+      const ext = path.extname(file.originalname || '').toLowerCase();
+      const safeExt = ext || '.jpg';
+      cb(null, `customer_${Date.now()}_${Math.round(Math.random() * 1e9)}${safeExt}`);
+    },
+  }),
+  limits: { fileSize: 1 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (file.mimetype && file.mimetype.startsWith('image/')) {
+      cb(null, true);
+      return;
+    }
+    cb(new Error('Only image files are allowed'));
+  },
+});
+
 // Enable CORS
 app.use(express.json());
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (req.method === 'OPTIONS') {
     return res.sendStatus(200);
@@ -1640,6 +1661,20 @@ app.get('/api/customers/profile', async (req, res) => {
   }
 });
 
+app.post('/api/customers/profile-image', customerPhotoUpload.single('image'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'image file is required' });
+    }
+
+    const relativeUrl = `/uploads/customer/${req.file.filename}`;
+    return res.json({ success: true, profile_image_url: relativeUrl });
+  } catch (err) {
+    console.error('❌ Customer Profile Image Upload Error:', err.message);
+    return res.status(500).json({ error: 'Failed to upload profile image', detail: err.message });
+  }
+});
+
 app.put('/api/customers/profile', async (req, res) => {
   try {
     const payload = req.body || {};
@@ -2232,7 +2267,7 @@ app.get('/api/complaints/low-ratings', async (req, res) => {
     const month = req.query.month ? Number(req.query.month) : null;
     const year = req.query.year ? Number(req.query.year) : new Date().getFullYear();
 
-    let whereClause = `WHERE (orv.rating_product < 3 OR orv.rating_rider < 3)`;
+    let whereClause = `WHERE (orv.rating_product <= 3 OR orv.rating_rider <= 3)`;
     const params = [];
 
     if (branchId && Number.isFinite(branchId) && branchId > 0) {
@@ -2248,6 +2283,11 @@ app.get('/api/complaints/low-ratings', async (req, res) => {
       params.push(year);
     }
 
+    if (status && ['waiting', 'progress', 'success'].includes(status)) {
+      whereClause += ` AND LOWER(orv.status) = ?`;
+      params.push(status);
+    }
+
     const [rows] = await pool.query(
       `
       SELECT
@@ -2259,29 +2299,30 @@ app.get('/api/complaints/low-ratings', async (req, res) => {
         orv.rating_product,
         orv.rating_rider,
         orv.comment,
+        orv.status,
         orv.created_at,
         CASE 
-          WHEN orv.rating_product < 3 AND orv.rating_product IS NOT NULL THEN p.employee_id 
-          WHEN orv.rating_rider < 3 AND orv.rating_rider IS NOT NULL THEN d.employee_id 
+          WHEN orv.rating_product <= 3 AND orv.rating_product IS NOT NULL THEN p.employee_id 
+          WHEN orv.rating_rider <= 3 AND orv.rating_rider IS NOT NULL THEN d.employee_id 
         END AS employee_id,
         CASE 
-          WHEN orv.rating_product < 3 AND orv.rating_product IS NOT NULL THEN e1.name
-          WHEN orv.rating_rider < 3 AND orv.rating_rider IS NOT NULL THEN e2.name
+          WHEN orv.rating_product <= 3 AND orv.rating_product IS NOT NULL THEN e1.name
+          WHEN orv.rating_rider <= 3 AND orv.rating_rider IS NOT NULL THEN e2.name
         END AS employee_name,
         CASE 
-          WHEN orv.rating_product < 3 AND orv.rating_product IS NOT NULL THEN 'florist'
-          WHEN orv.rating_rider < 3 AND orv.rating_rider IS NOT NULL THEN 'rider'
+          WHEN orv.rating_product <= 3 AND orv.rating_product IS NOT NULL THEN 'florist'
+          WHEN orv.rating_rider <= 3 AND orv.rating_rider IS NOT NULL THEN 'rider'
         END AS employee_role,
         CASE 
-          WHEN orv.rating_product < 3 AND orv.rating_product IS NOT NULL THEN orv.rating_product
-          WHEN orv.rating_rider < 3 AND orv.rating_rider IS NOT NULL THEN orv.rating_rider
+          WHEN orv.rating_product <= 3 AND orv.rating_product IS NOT NULL THEN orv.rating_product
+          WHEN orv.rating_rider <= 3 AND orv.rating_rider IS NOT NULL THEN orv.rating_rider
         END AS rating,
         CASE 
-          WHEN orv.rating_product < 3 AND orv.rating_product IS NOT NULL THEN 'product'
-          WHEN orv.rating_rider < 3 AND orv.rating_rider IS NOT NULL THEN 'delivery'
+          WHEN orv.rating_product <= 3 AND orv.rating_product IS NOT NULL THEN 'product'
+          WHEN orv.rating_rider <= 3 AND orv.rating_rider IS NOT NULL THEN 'delivery'
         END AS rating_type
       FROM order_review orv
-      JOIN \`order\` o ON o.order_id = orv.order_id
+      JOIN \`orders\` o ON o.order_id = orv.order_id
       LEFT JOIN branch b ON b.branch_id = o.branch_id
       LEFT JOIN prepare p ON p.order_id = o.order_id
       LEFT JOIN delivery d ON d.order_id = o.order_id
@@ -2299,9 +2340,10 @@ app.get('/api/complaints/low-ratings', async (req, res) => {
       total: Array.isArray(rows) ? rows.length : 0,
       complaints: Array.isArray(rows)
         ? rows
-            .filter((row) => row.employee_id && row.employee_name && row.employee_role && row.rating && row.rating_type)
+            .filter((row) => row.employee_id && row.employee_name && row.employee_role && row.rating !== null && row.rating !== undefined && row.rating_type)
             .map((row) => ({
               complaint_id: `${row.review_id}-${row.rating_type}`,
+              review_id: Number(row.review_id),
               order_id: Number(row.order_id),
               order_code: row.order_code,
               employee_id: Number(row.employee_id),
@@ -2311,6 +2353,7 @@ app.get('/api/complaints/low-ratings', async (req, res) => {
               branch_name: row.branch_name || '-',
               rating: Number(row.rating),
               rating_type: row.rating_type,
+              status: String(row.status || 'waiting').toLowerCase(),
               comment: row.comment || null,
               created_at: row.created_at,
             }))
@@ -2319,6 +2362,35 @@ app.get('/api/complaints/low-ratings', async (req, res) => {
   } catch (err) {
     console.error('❌ Complaints API Error:', err.message);
     return res.status(500).json({ error: 'Failed to fetch complaints', detail: err.message });
+  }
+});
+
+app.patch('/api/complaints/low-ratings/:reviewId/status', async (req, res) => {
+  try {
+    const reviewId = Number(req.params.reviewId);
+    const status = String(req.body?.status || '').toLowerCase().trim();
+
+    if (!Number.isInteger(reviewId) || reviewId <= 0) {
+      return res.status(400).json({ error: 'Invalid reviewId' });
+    }
+
+    if (!['waiting', 'progress', 'success'].includes(status)) {
+      return res.status(400).json({ error: 'Invalid status. Allowed: waiting, progress, success' });
+    }
+
+    const [result] = await pool.query(
+      'UPDATE order_review SET status = ? WHERE review_id = ?',
+      [status, reviewId]
+    );
+
+    if (!result || Number(result.affectedRows || 0) === 0) {
+      return res.status(404).json({ error: 'Complaint review not found' });
+    }
+
+    return res.json({ success: true, review_id: reviewId, status });
+  } catch (err) {
+    console.error('❌ Update complaint status error:', err.message);
+    return res.status(500).json({ error: 'Failed to update complaint status', detail: err.message });
   }
 });
 
@@ -4414,15 +4486,37 @@ app.put('/api/order/:orderIdentifier/status', async (req, res) => {
     // Try to treat identifier as numeric order_id, otherwise use order_code
     const maybeId = Number(orderIdentifier);
     let orderId;
+    let orderRow = null;
     let result;
+
+    const orderAmountColumn =
+      (await getExistingColumnName('orders', ['total_amount', 'total_price'])) ||
+      'total_amount';
+
     if (!Number.isNaN(maybeId)) {
+      const [beforeRows] = await pool.query(
+        `SELECT order_id, customer_id, order_status, ${orderAmountColumn} AS order_amount FROM orders WHERE order_id = ? LIMIT 1`,
+        [maybeId]
+      );
+      orderRow = Array.isArray(beforeRows) && beforeRows.length > 0 ? beforeRows[0] : null;
+      if (!orderRow) {
+        return res.status(404).json({ message: 'Order not found' });
+      }
+
       [result] = await pool.query('UPDATE orders SET order_status = ? WHERE order_id = ?', [normalizedStatus, maybeId]);
       orderId = maybeId;
     } else {
+      const [beforeRows] = await pool.query(
+        `SELECT order_id, customer_id, order_status, ${orderAmountColumn} AS order_amount FROM orders WHERE order_code = ? LIMIT 1`,
+        [orderIdentifier]
+      );
+      orderRow = Array.isArray(beforeRows) && beforeRows.length > 0 ? beforeRows[0] : null;
+      if (!orderRow) {
+        return res.status(404).json({ message: 'Order not found' });
+      }
+
       [result] = await pool.query('UPDATE orders SET order_status = ? WHERE order_code = ?', [normalizedStatus, orderIdentifier]);
-      // Get order_id from order_code
-      const [orderRows] = await pool.query('SELECT order_id FROM orders WHERE order_code = ?', [orderIdentifier]);
-      orderId = orderRows[0]?.order_id || null;
+      orderId = Number(orderRow.order_id || 0) || null;
     }
 
     // Update payment table with verification details
@@ -4435,6 +4529,32 @@ app.put('/api/order/:orderIdentifier/status', async (req, res) => {
         'UPDATE payment SET employee_id = ?, verified_at = ?, verified_result = ? WHERE order_id = ?',
         [employee_id || null, verifiedAt, verified_result, orderId]
       );
+    }
+
+    // Award points and transaction once when order reaches delivered/success.
+    if (orderId && ['success', 'delivered'].includes(normalizedStatus)) {
+      const customerId = Number(orderRow?.customer_id || 0);
+      const orderAmount = Number(orderRow?.order_amount || 0);
+      const pointsToReceive = Math.max(0, Math.floor(orderAmount / 100));
+
+      if (customerId > 0 && pointsToReceive > 0) {
+        const [existingReceivedRows] = await pool.query(
+          `SELECT transaction_id FROM point_transaction WHERE order_id = ? AND LOWER(type) = 'received' LIMIT 1`,
+          [orderId]
+        );
+
+        if (!Array.isArray(existingReceivedRows) || existingReceivedRows.length === 0) {
+          await pool.query(
+            'INSERT INTO point_transaction (customer_id, order_id, type, point) VALUES (?, ?, ?, ?)',
+            [customerId, orderId, 'received', pointsToReceive]
+          );
+
+          await pool.query(
+            'UPDATE customer SET total_point = COALESCE(total_point, 0) + ? WHERE customer_id = ?',
+            [pointsToReceive, customerId]
+          );
+        }
+      }
     }
 
     return res.json({ success: true, changedRows: result.affectedRows || 0, status: normalizedStatus });

@@ -135,6 +135,7 @@ interface SimpleProfileTabProps {
     dateOfBirth: string | null;
     profileImageUrl?: string | null;
   }) => Promise<void>;
+  onUploadProfileImage: (file: File) => Promise<string>;
   isSaving: boolean;
 }
 
@@ -186,6 +187,7 @@ function ProfileBannerNew({
     lastName = "Blossom",
     email = "member@blossomshop.com",
     phone = "099-999-9999",
+    profileImageUrl = null,
     memberSince = "15 มีนาคม 2024",
     memberLevel = "Gold Member",
     levelProgress,
@@ -204,7 +206,16 @@ function ProfileBannerNew({
   return (
     <div className="profile-banner">
       <div className="profile-header">
-        <div className="profile-avatar">{initial}</div>
+        {profileImageUrl ? (
+          <img
+            src={profileImageUrl}
+            alt={fullName}
+            className="profile-avatar"
+            style={{ objectFit: 'cover' }}
+          />
+        ) : (
+          <div className="profile-avatar">{initial}</div>
+        )}
 
         <div className="profile-info">
           <div className="profile-name">
@@ -326,7 +337,7 @@ function SimpleOverviewTabNew() {
         </div>
 
         <p className="section-description">
-          สิทธิ์พิเศษสำหรับสมาชิกระดับ Gold ของ Blossom Shop
+          สิทธิ์พิเศษสำหรับสมาชิกระดับ Silver
         </p>
 
         <div className="benefits-list">
@@ -335,28 +346,16 @@ function SimpleOverviewTabNew() {
               <Truck size={16} />
             </div>
             <p className="benefit-text">
-              จัดส่งฟรี เมื่อสั่งซื้อครบ <b>฿500</b>
+              โค้ดจัดส่งฟรี x2
             </p>
           </div>
 
-          <div className="benefit-item">
-            <div className="benefit-icon">
-              <Gift size={16} />
-            </div>
-            <p className="benefit-text">การ์ดเขียนมือพรีเมียมฟรี</p>
-          </div>
 
-          <div className="benefit-item">
-            <div className="benefit-icon">
-              <Zap size={16} />
-            </div>
-            <p className="benefit-text">สิทธิ์จัดดอกไม้ด่วน (Priority Slot)</p>
-          </div>
         </div>
       </div>
 
       <div className="welcome-card">
-        <h3 className="welcome-title">ยินดีต้อนรับสู่ Blossom Shop</h3>
+        <h3 className="welcome-title">ยินดีต้อนรับสู่ Siafa Shop</h3>
         <p className="welcome-description">
           สำรวจสินค้าและจัดดอกไม้สวยงามได้เลยตอนนี้
         </p>
@@ -754,7 +753,7 @@ function SimpleOrdersTabNew({ orders }: SimpleOrdersTabProps) {
   );
 }
 
-function SimpleProfileTabNew({ profile, onSaveProfile, isSaving }: SimpleProfileTabProps) {
+function SimpleProfileTabNew({ profile, onSaveProfile, onUploadProfileImage, isSaving }: SimpleProfileTabProps) {
   const months = [
     "มกราคม",
     "กุมภาพันธ์",
@@ -779,6 +778,8 @@ function SimpleProfileTabNew({ profile, onSaveProfile, isSaving }: SimpleProfile
   const [birthMonth, setBirthMonth] = useState("มีนาคม");
   const [birthYear, setBirthYear] = useState("1995");
   const [avatarFileName, setAvatarFileName] = useState("");
+  const [avatarPreviewUrl, setAvatarPreviewUrl] = useState(profile.profileImageUrl || "");
+  const [selectedProfileImageUrl, setSelectedProfileImageUrl] = useState<string | null>(profile.profileImageUrl || null);
 
   const years = Array.from({ length: 70 }, (_, i) => String(2025 - i));
 
@@ -815,6 +816,8 @@ function SimpleProfileTabNew({ profile, onSaveProfile, isSaving }: SimpleProfile
       setBirthMonth(parsedDate.monthName);
       setBirthYear(parsedDate.year);
     }
+    setAvatarPreviewUrl(profile.profileImageUrl || '');
+    setSelectedProfileImageUrl(profile.profileImageUrl || null);
   }, [profile]);
 
   const handleSave = async (event: FormEvent) => {
@@ -832,6 +835,7 @@ function SimpleProfileTabNew({ profile, onSaveProfile, isSaving }: SimpleProfile
         email: email.trim(),
         genderName: gender,
         dateOfBirth,
+        profileImageUrl: selectedProfileImageUrl,
       });
       await Swal.fire({
         icon: 'success',
@@ -848,9 +852,33 @@ function SimpleProfileTabNew({ profile, onSaveProfile, isSaving }: SimpleProfile
     }
   };
 
-  const handleFileSelect = (event: ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
+
+    if (file.size > 1 * 1024 * 1024) {
+      await Swal.fire({
+        icon: 'warning',
+        title: 'ไฟล์ใหญ่เกินไป',
+        text: 'กรุณาเลือกรูปที่มีขนาดไม่เกิน 1 MB',
+      });
+      return;
+    }
+
+    try {
+      const uploadedUrl = await onUploadProfileImage(file);
+      setAvatarPreviewUrl(uploadedUrl);
+      setSelectedProfileImageUrl(uploadedUrl);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'อัปโหลดรูปไม่สำเร็จ';
+      await Swal.fire({
+        icon: 'error',
+        title: 'อัปโหลดไม่สำเร็จ',
+        text: message,
+      });
+      return;
+    }
+
     setAvatarFileName(file.name);
   };
 
@@ -967,7 +995,11 @@ function SimpleProfileTabNew({ profile, onSaveProfile, isSaving }: SimpleProfile
       </div>
 
       <div className="profile-avatar-side">
-        <div className="profile-avatar-circle" />
+        {avatarPreviewUrl ? (
+          <img src={avatarPreviewUrl} alt="profile" className="profile-avatar-circle" style={{ objectFit: 'cover' }} />
+        ) : (
+          <div className="profile-avatar-circle" />
+        )}
         <label className="profile-upload-button">
           เลือกรูป
           <input type="file" accept="image/*" className="hidden-file-input" onChange={handleFileSelect} />
@@ -1056,6 +1088,15 @@ export function DashboardNew({
 
   const API_BASE = (import.meta as any).env?.VITE_API_BASE || (window.location.hostname === 'localhost' ? 'http://localhost:3000' : '');
 
+  const resolveImageUrl = (rawUrl?: string | null) => {
+    const value = String(rawUrl || '').trim();
+    if (!value) return null;
+    if (value.startsWith('http://') || value.startsWith('https://') || value.startsWith('data:')) {
+      return value;
+    }
+    return API_BASE ? `${API_BASE}${value}` : value;
+  };
+
   useEffect(() => {
     if (!userPhone) {
       setErrorMessage('ไม่พบเบอร์โทรผู้ใช้ กรุณาเข้าสู่ระบบใหม่');
@@ -1088,7 +1129,7 @@ export function DashboardNew({
           phone: fetchedProfile.phone || userPhone,
           genderName: fetchedProfile.gender_name || null,
           dateOfBirth: fetchedProfile.date_of_birth || null,
-          profileImageUrl: fetchedProfile.profile_image_url || null,
+          profileImageUrl: resolveImageUrl(fetchedProfile.profile_image_url),
           loyaltyPoints: Number(fetchedProfile.loyalty_points || 0),
           memberSince: fetchedProfile.member_since
             ? new Date(fetchedProfile.member_since).toLocaleDateString('th-TH')
@@ -1229,17 +1270,44 @@ export function DashboardNew({
         phone: updated.phone || prev.phone || userPhone,
         genderName: updated.gender_name || null,
         dateOfBirth: updated.date_of_birth || null,
-        profileImageUrl: updated.profile_image_url || null,
+        profileImageUrl: resolveImageUrl(updated.profile_image_url),
       }));
     } finally {
       setIsProfileSaving(false);
     }
   };
 
+  const handleUploadProfileImage = async (file: File) => {
+    const url = `${API_BASE ? `${API_BASE}/api/customers/profile-image` : '/api/customers/profile-image'}`;
+    const formData = new FormData();
+    formData.append('image', file);
+
+    const response = await fetch(url, {
+      method: 'POST',
+      body: formData,
+    });
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(data?.error || 'อัปโหลดรูปไม่สำเร็จ');
+    }
+
+    const uploadedPath = String(data?.profile_image_url || '').trim();
+    if (!uploadedPath) {
+      throw new Error('ไม่พบ URL รูปภาพหลังอัปโหลด');
+    }
+
+    if (uploadedPath.startsWith('http://') || uploadedPath.startsWith('https://')) {
+      return uploadedPath;
+    }
+
+    return API_BASE ? `${API_BASE}${uploadedPath}` : uploadedPath;
+  };
+
   const renderTabContent = () => {
     switch (activeTab) {
       case "profile":
-        return <SimpleProfileTabNew profile={profileData} onSaveProfile={handleSaveProfile} isSaving={isProfileSaving} />;
+        return <SimpleProfileTabNew profile={profileData} onSaveProfile={handleSaveProfile} onUploadProfileImage={handleUploadProfileImage} isSaving={isProfileSaving} />;
       case "orders":
         return <SimpleOrdersTabNew orders={orders} />;
       case "promotions":

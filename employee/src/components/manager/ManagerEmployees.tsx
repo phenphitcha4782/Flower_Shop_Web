@@ -25,17 +25,19 @@ interface EmployeeItem {
 
 interface ComplaintItem {
   id: string;
+  reviewId: number;
   orderCode: string;
   branch: string;
   employeeRole: EmployeeRole;
   employeeName: string;
   orderScore: number;
   reason: string;
-  status: 'pending' | 'in-progress' | 'resolved';
+  status: 'waiting' | 'progress' | 'success';
 }
 
 interface LowRatingComplaint {
   complaint_id: string;
+  review_id: number;
   order_id: number;
   order_code: string;
   employee_id: number;
@@ -45,6 +47,7 @@ interface LowRatingComplaint {
   branch_name: string;
   rating: number;
   rating_type: string;
+  status: 'waiting' | 'progress' | 'success';
   comment: string | null;
   created_at: string;
 }
@@ -60,6 +63,7 @@ export default function ManagerEmployees() {
   const [roleFilter, setRoleFilter] = useState<'all' | EmployeeRole>('all');
   const [monthFilter, setMonthFilter] = useState('all');
   const [complaintStatusFilter, setComplaintStatusFilter] = useState<'all' | ComplaintItem['status']>('all');
+  const [updatingComplaintId, setUpdatingComplaintId] = useState<number | null>(null);
 
   const mapRole = (roleId: number, roleName?: string): EmployeeRole => {
     const normalized = String(roleName || '').trim().toLowerCase();
@@ -300,13 +304,14 @@ export default function ManagerEmployees() {
     return complaints
       .map((complaint) => ({
         id: complaint.complaint_id,
+        reviewId: Number(complaint.review_id || 0),
         orderCode: complaint.order_code,
         branch: complaint.branch_name,
         employeeRole: complaint.employee_role as EmployeeRole,
         employeeName: complaint.employee_name,
         orderScore: complaint.rating,
         reason: complaint.comment || `${complaint.rating_type === 'delivery' ? 'ปัญหาการจัดส่ง' : 'ปัญหาคุณภาพสินค้า'}`,
-        status: 'pending' as const,
+        status: (complaint.status || 'waiting') as ComplaintItem['status'],
       }))
       .filter((item) => {
         const inBranch = branchName ? item.branch === branchName : false;
@@ -315,7 +320,33 @@ export default function ManagerEmployees() {
       });
   }, [complaints, branchName, complaintStatusFilter]);
 
-  const openComplaintCount = filteredComplaints.filter((item) => item.status !== 'resolved').length;
+  const openComplaintCount = filteredComplaints.filter((item) => item.status !== 'success').length;
+
+  const updateComplaintStatus = async (reviewId: number, status: ComplaintItem['status']) => {
+    if (!Number.isInteger(reviewId) || reviewId <= 0) return;
+    setUpdatingComplaintId(reviewId);
+    try {
+      const response = await fetch(`http://localhost:3000/api/complaints/low-ratings/${reviewId}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data?.error || 'Failed to update complaint status');
+      }
+
+      setComplaints((prev) => prev.map((item) => (
+        Number(item.review_id) === reviewId ? { ...item, status } : item
+      )));
+    } catch (err) {
+      console.error('Failed to update complaint status:', err);
+      alert('ไม่สามารถอัปเดตสถานะคอมเพลนได้');
+    } finally {
+      setUpdatingComplaintId(null);
+    }
+  };
 
   const stats = [
     { label: 'พนักงานในสาขา', value: String(branchEmployees.length), color: 'bg-blue-500', icon: Users },
@@ -365,13 +396,13 @@ export default function ManagerEmployees() {
   };
 
   const complaintStatusBadge = (status: ComplaintItem['status']) => {
-    if (status === 'pending') {
+    if (status === 'waiting') {
       return <span className="px-3 py-1 rounded-full text-xs bg-red-100 text-red-800">รอดำเนินการ</span>;
     }
-    if (status === 'in-progress') {
-      return <span className="px-3 py-1 rounded-full text-xs bg-yellow-100 text-yellow-800">กำลังแก้ไข</span>;
+    if (status === 'progress') {
+      return <span className="px-3 py-1 rounded-full text-xs bg-yellow-100 text-yellow-800">กำลังดำเนินการ</span>;
     }
-    return <span className="px-3 py-1 rounded-full text-xs bg-green-100 text-green-800">แก้ไขสำเร็จ</span>;
+    return <span className="px-3 py-1 rounded-full text-xs bg-green-100 text-green-800">ดำเนินการสำเร็จ</span>;
   };
 
   return (
@@ -580,9 +611,9 @@ export default function ManagerEmployees() {
               className="w-full max-w-[220px] px-4 py-2 border-2 border-gray-200 rounded-lg focus:border-blue-500 focus:outline-none"
             >
               <option value="all">ทุกสถานะ</option>
-              <option value="pending">รอดำเนินการ</option>
-              <option value="in-progress">กำลังแก้ไข</option>
-              <option value="resolved">แก้ไขสำเร็จ</option>
+              <option value="waiting">รอดำเนินการ</option>
+              <option value="progress">กำลังดำเนินการ</option>
+              <option value="success">ดำเนินการสำเร็จ</option>
             </select>
           </div>
           <div className="overflow-x-auto">
@@ -595,6 +626,7 @@ export default function ManagerEmployees() {
                   <th className="px-6 py-3 text-left text-sm text-gray-600">คะแนนออเดอร์</th>
                   <th className="px-6 py-3 text-left text-sm text-gray-600">สาเหตุ</th>
                   <th className="px-6 py-3 text-left text-sm text-gray-600">สถานะ</th>
+                  <th className="px-6 py-3 text-left text-sm text-gray-600">แก้ไขสถานะ</th>
                 </tr>
               </thead>
               <tbody>
@@ -606,6 +638,18 @@ export default function ManagerEmployees() {
                     <td className="px-6 py-4 text-gray-900">{complaint.orderScore}/5</td>
                     <td className="px-6 py-4 text-gray-700">{complaint.reason}</td>
                     <td className="px-6 py-4">{complaintStatusBadge(complaint.status)}</td>
+                    <td className="px-6 py-4">
+                      <select
+                        value={complaint.status}
+                        disabled={updatingComplaintId === complaint.reviewId}
+                        onChange={(e) => updateComplaintStatus(complaint.reviewId, e.target.value as ComplaintItem['status'])}
+                        className="w-full max-w-[180px] px-3 py-2 border border-gray-200 rounded-lg focus:border-blue-500 focus:outline-none"
+                      >
+                        <option value="waiting">รอดำเนินการ</option>
+                        <option value="progress">กำลังดำเนินการ</option>
+                        <option value="success">ดำเนินการสำเร็จ</option>
+                      </select>
+                    </td>
                   </tr>
                 ))}
               </tbody>

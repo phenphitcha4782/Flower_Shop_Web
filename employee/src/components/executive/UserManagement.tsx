@@ -3,6 +3,24 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 type EmployeeRole = 'cashier' | 'florist' | 'rider' | 'manager' | 'executive' | 'unknown';
+type ComplaintStatus = 'waiting' | 'progress' | 'success';
+
+interface ComplaintRow {
+  complaint_id: string;
+  review_id: number;
+  order_id: number;
+  order_code: string;
+  employee_id: number;
+  employee_name: string;
+  employee_role: 'florist' | 'rider' | string;
+  branch_id: number;
+  branch_name: string;
+  rating: number;
+  rating_type: 'product' | 'delivery' | string;
+  status: ComplaintStatus;
+  comment: string | null;
+  created_at: string;
+}
 
 export default function UserManagement() {
   const navigate = useNavigate();
@@ -17,7 +35,9 @@ export default function UserManagement() {
   const [complaintBranchFilter, setComplaintBranchFilter] = useState('all');
   const [complaintRoleFilter, setComplaintRoleFilter] = useState('all');
   const [complaintScoreFilter, setComplaintScoreFilter] = useState('all');
-  const [complaintStatusFilter, setComplaintStatusFilter] = useState('all');
+  const [complaintStatusFilter, setComplaintStatusFilter] = useState<'all' | ComplaintStatus>('all');
+  const [complaints, setComplaints] = useState<ComplaintRow[]>([]);
+  const [updatingComplaintId, setUpdatingComplaintId] = useState<number | null>(null);
   const [users, setUsers] = useState<any[]>([]);
   const [branches, setBranches] = useState<any[]>([]);
   const [topRevenueBranch, setTopRevenueBranch] = useState('');
@@ -220,9 +240,45 @@ export default function UserManagement() {
     }
   };
 
+  const loadComplaints = async () => {
+    try {
+      const response = await fetch('http://localhost:3000/api/complaints/low-ratings');
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.error || 'Failed to load complaints');
+      setComplaints(Array.isArray(data?.complaints) ? data.complaints : []);
+    } catch (err) {
+      console.error('Failed to load complaints:', err);
+      setComplaints([]);
+    }
+  };
+
+  const updateComplaintStatus = async (reviewId: number, status: ComplaintStatus) => {
+    if (!Number.isInteger(reviewId) || reviewId <= 0) return;
+    setUpdatingComplaintId(reviewId);
+    try {
+      const response = await fetch(`http://localhost:3000/api/complaints/low-ratings/${reviewId}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.error || 'Failed to update complaint status');
+
+      setComplaints((prev) => prev.map((item) => (
+        Number(item.review_id) === reviewId ? { ...item, status } : item
+      )));
+    } catch (err) {
+      console.error('Failed to update complaint status:', err);
+      alert('ไม่สามารถอัปเดตสถานะคอมเพลนได้');
+    } finally {
+      setUpdatingComplaintId(null);
+    }
+  };
+
   useEffect(() => {
     fetchBranches();
     loadUsersAndPerformance();
+    loadComplaints();
   }, []);
 
   const stats = [
@@ -439,62 +495,31 @@ export default function UserManagement() {
     return matchesSearch && matchesRole && matchesBranch;
   });
 
-  const complaints = [
-    {
-      id: 'CMP-001',
-      orderCode: 'ORD10623591',
-      branch: 'พิจิตร',
-      employeeRole: 'cashier',
-      employeeName: 'สมชาย ใจดี',
-      orderScore: 2,
-      reason: 'คุณภาพสินค้าไม่ดี',
-      status: 'pending'
-    },
-    {
-      id: 'CMP-002',
-      orderCode: 'ORD10623644',
-      branch: 'แพร่',
-      employeeRole: 'rider',
-      employeeName: 'ประยุทธ ส่งไว',
-      orderScore: 1,
-      reason: 'ส่งล่าช้า',
-      status: 'in-progress'
-    },
-    {
-      id: 'CMP-003',
-      orderCode: 'ORD10623802',
-      branch: 'พิจิตร',
-      employeeRole: 'florist',
-      employeeName: 'สมหญิง รักดอกไม้',
-      orderScore: 3,
-      reason: 'จัดช่อไม่ตรงแบบ',
-      status: 'resolved'
-    },
-    {
-      id: 'CMP-004',
-      orderCode: 'ORD10623917',
-      branch: 'สงขลา',
-      employeeRole: 'manager',
-      employeeName: 'สมพร จัดการเก่ง',
-      orderScore: 2,
-      reason: 'การประสานงานล่าช้า',
-      status: 'in-progress'
-    }
-  ];
+  const complaintItems = complaints.map((complaint) => ({
+    id: complaint.complaint_id,
+    reviewId: Number(complaint.review_id || 0),
+    orderCode: complaint.order_code,
+    branch: complaint.branch_name || '-',
+    employeeRole: complaint.employee_role,
+    employeeName: complaint.employee_name,
+    orderScore: Number(complaint.rating || 0),
+    reason: complaint.comment || `${complaint.rating_type === 'delivery' ? 'ปัญหาการจัดส่ง' : 'ปัญหาคุณภาพสินค้า'}`,
+    status: (complaint.status || 'waiting') as ComplaintStatus,
+  }));
 
-  const getComplaintStatusBadge = (status: string) => {
-    if (status === 'pending') {
+  const getComplaintStatusBadge = (status: ComplaintStatus) => {
+    if (status === 'waiting') {
       return <span className="px-3 py-1 rounded-full text-xs bg-red-100 text-red-800">รอดำเนินการ</span>;
     }
-    if (status === 'in-progress') {
-      return <span className="px-3 py-1 rounded-full text-xs bg-yellow-100 text-yellow-800">กำลังแก้ไข</span>;
+    if (status === 'progress') {
+      return <span className="px-3 py-1 rounded-full text-xs bg-yellow-100 text-yellow-800">กำลังดำเนินการ</span>;
     }
-    return <span className="px-3 py-1 rounded-full text-xs bg-green-100 text-green-800">แก้ไขสำเร็จ</span>;
+    return <span className="px-3 py-1 rounded-full text-xs bg-green-100 text-green-800">ดำเนินการสำเร็จ</span>;
   };
 
-  const complaintBranchOptions = Array.from(new Set(complaints.map((item) => item.branch)));
+  const complaintBranchOptions = Array.from(new Set(complaintItems.map((item) => item.branch)));
 
-  const filteredComplaints = complaints.filter((complaint) => {
+  const filteredComplaints = complaintItems.filter((complaint) => {
     const matchesBranch = complaintBranchFilter === 'all' || complaint.branch === complaintBranchFilter;
     const matchesRole = complaintRoleFilter === 'all' || complaint.employeeRole === complaintRoleFilter;
     const matchesScore = complaintScoreFilter === 'all' || String(complaint.orderScore) === complaintScoreFilter;
@@ -819,13 +844,13 @@ export default function UserManagement() {
                 <label className="block text-sm text-gray-700 mb-2">ฟิลเตอร์สถานะ</label>
                 <select
                   value={complaintStatusFilter}
-                  onChange={(e) => setComplaintStatusFilter(e.target.value)}
+                  onChange={(e) => setComplaintStatusFilter(e.target.value as 'all' | ComplaintStatus)}
                   className="w-full px-4 py-2 border-2 border-gray-200 rounded-lg focus:border-blue-500 focus:outline-none"
                 >
                   <option value="all">ทุกสถานะ</option>
-                  <option value="pending">รอดำเนินการ</option>
-                  <option value="in-progress">กำลังแก้ไข</option>
-                  <option value="resolved">แก้ไขสำเร็จ</option>
+                  <option value="waiting">รอดำเนินการ</option>
+                  <option value="progress">กำลังดำเนินการ</option>
+                  <option value="success">ดำเนินการสำเร็จ</option>
                 </select>
               </div>
             </div>
@@ -847,6 +872,7 @@ export default function UserManagement() {
                   <th className="px-6 py-3 text-left text-sm text-gray-600">คะแนน Order</th>
                   <th className="px-6 py-3 text-left text-sm text-gray-600">รายละเอียดสาเหตุ</th>
                   <th className="px-6 py-3 text-left text-sm text-gray-600">สถานะ</th>
+                  <th className="px-6 py-3 text-left text-sm text-gray-600">แก้ไขสถานะ</th>
                 </tr>
               </thead>
               <tbody>
@@ -859,6 +885,18 @@ export default function UserManagement() {
                     <td className="px-6 py-4 text-gray-900">{complaint.orderScore}/5</td>
                     <td className="px-6 py-4 text-gray-700">{complaint.reason}</td>
                     <td className="px-6 py-4">{getComplaintStatusBadge(complaint.status)}</td>
+                    <td className="px-6 py-4">
+                      <select
+                        value={complaint.status}
+                        disabled={updatingComplaintId === complaint.reviewId}
+                        onChange={(e) => updateComplaintStatus(complaint.reviewId, e.target.value as ComplaintStatus)}
+                        className="w-full max-w-[180px] px-3 py-2 border border-gray-200 rounded-lg focus:border-blue-500 focus:outline-none"
+                      >
+                        <option value="waiting">รอดำเนินการ</option>
+                        <option value="progress">กำลังดำเนินการ</option>
+                        <option value="success">ดำเนินการสำเร็จ</option>
+                      </select>
+                    </td>
                   </tr>
                 ))}
               </tbody>
