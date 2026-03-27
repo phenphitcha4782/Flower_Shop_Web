@@ -7,9 +7,9 @@ export default function Landing() {
   const roles = [
     { name: 'Cashier', icon: UserCircle, path: '/cashier/login', color: 'bg-cyan-500',Sname: 'พนักงานขาย' },
     { name: 'Florist', icon: Flower2, path: '/florist/login', color: 'bg-teal-500', Sname: 'พนักงานจัดดอกไม้' },
-    { name: 'Rider', icon: Truck, path: '/rider/login', color: 'bg-sky-500', Sname: 'ไรเดอร์' },
+    //{ name: 'Rider', icon: Truck, path: '/rider/login', color: 'bg-sky-500', Sname: 'ไรเดอร์' },
     { name: 'Branch Manager', icon: Building2, path: '/manager/login', color: 'bg-indigo-500', Sname: 'ผู้จัดการสาขา' },
-    { name: 'Executive', icon: BarChart3, path: '/executive/login', color: 'bg-blue-600', Sname: 'ผู้บริหาร' },
+    //{ name: 'Executive', icon: BarChart3, path: '/executive/login', color: 'bg-blue-600', Sname: 'ผู้บริหาร' },
   ];
 
   return (
