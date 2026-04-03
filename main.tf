@@ -46,7 +46,7 @@ resource "aws_security_group" "web_sg" {
 # 🔑 Key Pair (แก้ path ให้ตรง Windows)
 resource "aws_key_pair" "deployer" {
   key_name   = "my-key"
-  public_key = file("C:/Users/WINDOWS 11/.ssh/id_rsa.pub")
+  public_key = file("C:/Users/WINDOWS 11/.ssh/id_ed25519.pub")
 }
 
 # 🖥️ EC2
