@@ -55,7 +55,10 @@ resource "aws_instance" "web" {
     Name = "flower-shop-web"
   }
 }
-
+resource "aws_key_pair" "deployer" {
+  key_name   = "my-key"
+  public_key = file("~/.ssh/id_rsa.pub")
+}
 # 🛢️ RDS MySQL
 resource "aws_db_instance" "mysql" {
   allocated_storage    = 20
