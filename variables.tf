@@ -1,9 +1,9 @@
 variable "region" {
-  default = "ap-southeast-1" # สิงคโปร์ (ใกล้ไทย)
+  default = "ap-southeast-1"
 }
 
 variable "instance_type" {
-  default = "t2.micro" 
+  default = "t3.micro"
 }
 
 variable "db_username" {
@@ -11,5 +11,7 @@ variable "db_username" {
 }
 
 variable "db_password" {
-  default = "12345678"
+  description = "MySQL password"
+  type        = string
+  sensitive   = true
 }
