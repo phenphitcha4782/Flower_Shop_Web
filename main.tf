@@ -27,6 +27,14 @@ resource "aws_security_group" "web_sg" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
+  # ✅ เพิ่ม MySQL
+  ingress {
+    from_port   = 3306
+    to_port     = 3306
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
   egress {
     from_port   = 0
     to_port     = 0
@@ -35,17 +43,27 @@ resource "aws_security_group" "web_sg" {
   }
 }
 
+# 🔑 Key Pair (แก้ path ให้ตรง Windows)
+resource "aws_key_pair" "deployer" {
+  key_name   = "my-key"
+  public_key = file("C:/Users/WINDOWS 11/.ssh/id_rsa.pub")
+}
+
 # 🖥️ EC2
 resource "aws_instance" "web" {
-  ami           = "ami-0df7a207adb9748c7" # Ubuntu (อาจต้องเปลี่ยนตาม region)
+  ami           = "ami-0df7a207adb9748c7"
   instance_type = var.instance_type
+
   security_groups = [aws_security_group.web_sg.name]
+
+  # ✅ เพิ่มตรงนี้
+  key_name = aws_key_pair.deployer.key_name
 
   user_data = <<-EOF
               #!/bin/bash
               apt update -y
               apt install -y nodejs npm git
-              git clone https://github.com/YOUR_REPO.git /app
+              git clone https://github.com/YOUR_USERNAME/YOUR_REPO.git /app
               cd /app
               npm install
               npm start
@@ -55,10 +73,7 @@ resource "aws_instance" "web" {
     Name = "flower-shop-web"
   }
 }
-resource "aws_key_pair" "deployer" {
-  key_name   = "my-key"
-  public_key = file("~/.ssh/id_rsa.pub")
-}
+
 # 🛢️ RDS MySQL
 resource "aws_db_instance" "mysql" {
   allocated_storage    = 20
@@ -68,6 +83,10 @@ resource "aws_db_instance" "mysql" {
   db_name              = "flowershop"
   username             = var.db_username
   password             = var.db_password
+
   skip_final_snapshot  = true
   publicly_accessible  = true
+
+  # ✅ สำคัญมาก
+  vpc_security_group_ids = [aws_security_group.web_sg.id]
 }
